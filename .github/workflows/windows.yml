@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: write
+
 jobs:
   check:
     runs-on: windows-latest
@@ -15,6 +18,19 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
+      - name: Apply rustfmt on implementation branch
+        if: github.event_name == 'push' && github.ref == 'refs/heads/slice-1-browser-alpha'
+        shell: pwsh
+        run: |
+          cargo fmt --all
+          git diff --quiet
+          if ($LASTEXITCODE -ne 0) {
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add src
+            git commit -m "Apply rustfmt"
+            git push origin HEAD:slice-1-browser-alpha
+          }
       - name: Format
         run: cargo fmt --all -- --check
       - name: Clippy
