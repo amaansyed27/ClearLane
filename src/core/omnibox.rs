@@ -8,18 +8,22 @@ pub fn normalize_omnibox(input: &str) -> Option<String> {
         return None;
     }
 
-    if let Ok(url) = Url::parse(input)
-        && matches!(url.scheme(), "http" | "https")
-    {
-        return Some(url.into());
+    let lower = input.to_ascii_lowercase();
+    let local = lower == "localhost"
+        || lower.starts_with("localhost:")
+        || lower.starts_with("127.")
+        || lower.starts_with("[::1]");
+
+    if let Ok(url) = Url::parse(input) {
+        if matches!(url.scheme(), "http" | "https") {
+            return Some(url.into());
+        }
+        if !local {
+            return Some(search_url(input));
+        }
     }
 
     if !input.chars().any(char::is_whitespace) && !input.contains('\\') {
-        let lower = input.to_ascii_lowercase();
-        let local = lower == "localhost"
-            || lower.starts_with("localhost:")
-            || lower.starts_with("127.")
-            || lower.starts_with("[::1]");
         let host_like = local || input.contains('.') || input.contains(':');
         if host_like {
             let scheme = if local { "http" } else { "https" };
@@ -30,8 +34,12 @@ pub fn normalize_omnibox(input: &str) -> Option<String> {
         }
     }
 
+    Some(search_url(input))
+}
+
+fn search_url(input: &str) -> String {
     let encoded: String = url::form_urlencoded::byte_serialize(input.as_bytes()).collect();
-    Some(format!("{SEARCH_ENDPOINT}{encoded}"))
+    format!("{SEARCH_ENDPOINT}{encoded}")
 }
 
 #[cfg(test)]
@@ -76,5 +84,7 @@ mod tests {
         assert!(result.starts_with("https://www.google.com/search?q="));
         let custom = normalize_omnibox("mailto:test@example.com").unwrap();
         assert!(custom.starts_with("https://www.google.com/search?q="));
+        let ftp = normalize_omnibox("ftp://example.com/file").unwrap();
+        assert!(ftp.starts_with("https://www.google.com/search?q="));
     }
 }
