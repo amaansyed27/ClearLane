@@ -333,14 +333,7 @@ fn layout(runtime: &mut Runtime) {
             x += button + gap;
         }
         let omnibox_width = (rect.right - x - shields_width - gap * 2).max(s(140));
-        MoveWindow(
-            runtime.controls.omnibox,
-            x,
-            s(8),
-            omnibox_width,
-            s(30),
-            1,
-        );
+        MoveWindow(runtime.controls.omnibox, x, s(8), omnibox_width, s(30), 1);
         MoveWindow(
             runtime.controls.shields,
             x + omnibox_width + gap,
@@ -447,10 +440,7 @@ pub(crate) fn refresh(runtime: &mut Runtime) {
                 .unwrap_or((true, 0));
             set_text(
                 runtime.controls.shields,
-                &format!(
-                    "Shields {} {count}",
-                    if enabled { "ON" } else { "OFF" }
-                ),
+                &format!("Shields {} {count}", if enabled { "ON" } else { "OFF" }),
             );
             let title = if tab.title.trim().is_empty() {
                 "ClearLane".to_string()
