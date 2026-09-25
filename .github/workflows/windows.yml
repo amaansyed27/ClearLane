@@ -18,6 +18,8 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
       - name: Apply rustfmt on implementation branch
         if: github.event_name == 'push' && github.ref == 'refs/heads/slice-1-browser-alpha'
         shell: pwsh
