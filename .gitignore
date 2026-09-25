@@ -1,0 +1,24 @@
+# Rust
+/target/
+
+# IDE / OS
+.vs/
+.idea/
+*.user
+.DS_Store
+Thumbs.db
+
+# Local browser/runtime state
+/cef_cache/
+/profile/
+/profiles/
+/crash_dumps/
+
+# Local build / benchmark output
+/artifacts/
+/benchmarks/results/
+
+# Local environment files
+.env
+.env.*
+!.env.example
