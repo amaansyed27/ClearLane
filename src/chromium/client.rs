@@ -102,14 +102,18 @@ wrap_request_handler! {
             _frame: Option<&mut Frame>,
             _request: Option<&mut Request>,
             _is_navigation: i32,
-            _is_download: i32,
+            is_download: i32,
             request_initiator: Option<&CefString>,
             _disable_default_handling: Option<&mut i32>,
         ) -> Option<ResourceRequestHandler> {
             let initiator = request_initiator.map(CefString::to_string).filter(|value| !value.is_empty())
                 .or_else(|| self.context.current_url.lock().ok().map(|value| value.clone()))
                 .unwrap_or_default();
-            Some(ClearLaneResourceRequestHandler::new(self.context.clone(), initiator))
+            Some(ClearLaneResourceRequestHandler::new(
+                self.context.clone(),
+                initiator,
+                is_download != 0,
+            ))
         }
 
         fn on_render_process_terminated(&self, browser: Option<&mut Browser>, _status: TerminationStatus, error_code: i32, error_string: Option<&CefString>) {
@@ -122,7 +126,7 @@ wrap_request_handler! {
 }
 
 wrap_resource_request_handler! {
-    struct ClearLaneResourceRequestHandler { context: ClientContext, initiator: String }
+    struct ClearLaneResourceRequestHandler { context: ClientContext, initiator: String, deny_download: bool }
     impl ResourceRequestHandler {
         fn on_before_resource_load(
             &self,
@@ -131,6 +135,11 @@ wrap_resource_request_handler! {
             request: Option<&mut Request>,
             _callback: Option<&mut Callback>,
         ) -> ReturnValue {
+            // Downloads become an explicit security boundary in Slice 2. Until ClearLane has a
+            // user-visible download flow and destination policy, Browser Alpha fails them closed.
+            if self.deny_download {
+                return ReturnValue::CANCEL;
+            }
             let Some(request) = request else { return ReturnValue::CONTINUE; };
             let request_url = CefStringUtf16::from(&request.url()).to_string();
             let blocked = self.context.shields.lock().map(|mut shields| {
