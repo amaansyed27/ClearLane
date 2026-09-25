@@ -63,9 +63,6 @@ impl Runtime {
     pub(crate) fn shields(&self) -> Arc<Mutex<Shields>> {
         self.shields.clone()
     }
-    pub(crate) fn is_closing(&self) -> bool {
-        self.closing
-    }
 
     pub(crate) fn browser_bounds(&self) -> EngineBounds {
         window::browser_bounds(self.hwnd, self.sidebar_open)
