@@ -2,7 +2,7 @@
 
 A fast, lightweight, user-first Chromium browser written around a Rust-native core, with native ad/tracker blocking and an agent-ready foundation.
 
-> **Current stage:** Stage 0 — project foundation. Architecture and product constraints are documented; implementation has not started.
+> **Current stage:** Slice 1 — Browser Alpha implementation ready for manual Windows verification. It is not complete until the manual gate passes and the implementation PR is merged.
 
 ## Goals
 
@@ -18,7 +18,7 @@ ClearLane is intentionally planned in only three implementation slices.
 
 | Slice | Outcome | Status |
 | --- | --- | --- |
-| 1. Browser Alpha | Rust shell + Chromium, navigation, tabs/sidebar, Shields, persistence, CI and baseline performance harness | Next |
+| 1. Browser Alpha | Rust shell + Chromium, navigation, tabs/sidebar, Shields, persistence, CI and baseline performance harness | Manual verification pending |
 | 2. Everyday Browser | Full human browser: customization, Spaces/groups, split view, history, bookmarks, downloads, profiles/incognito, permissions, tab lifecycle and performance hardening | Planned |
 | 3. Agent Runtime | CDP/Playwright compatibility, structured page state/deltas, MCP interface and token/latency benchmarks | Planned |
 
