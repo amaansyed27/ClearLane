@@ -1,9 +1,13 @@
 use std::sync::{Arc, Mutex, Weak};
 
-use base64::{engine::general_purpose::STANDARD, Engine as _};
+use base64::{Engine as _, engine::general_purpose::STANDARD};
 use cef::*;
 
-use crate::{app::{self, Runtime}, core::TabId, shields::Shields};
+use crate::{
+    app::{self, Runtime},
+    core::TabId,
+    shields::Shields,
+};
 
 #[derive(Clone)]
 pub(crate) struct ClientContext {
@@ -151,12 +155,18 @@ wrap_resource_request_handler! {
 fn load_internal_page(frame: &Frame, heading: &str, detail: &str, footer: &str) {
     let html = format!(
         "<!doctype html><meta charset=utf-8><title>{0}</title><style>body{{font-family:system-ui;margin:10vh auto;max-width:720px;padding:0 32px;color:#202124}}h1{{font-size:28px}}p{{line-height:1.55;color:#5f6368}}</style><h1>{0}</h1><p>{1}</p><p>{2}</p>",
-        html_escape(heading), detail, html_escape(footer)
+        html_escape(heading),
+        detail,
+        html_escape(footer)
     );
     let data = format!("data:text/html;base64,{}", STANDARD.encode(html));
     frame.load_url(Some(&CefString::from(data.as_str())));
 }
 
 fn html_escape(value: &str) -> String {
-    value.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
 }

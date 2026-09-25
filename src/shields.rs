@@ -1,6 +1,14 @@
-use std::{collections::{HashMap, HashSet}, fs, path::Path};
+use std::{
+    collections::{HashMap, HashSet},
+    fs,
+    path::Path,
+};
 
-use adblock::{Engine, lists::{FilterSet, ParseOptions}, request::Request};
+use adblock::{
+    Engine,
+    lists::{FilterSet, ParseOptions},
+    request::Request,
+};
 use url::Url;
 
 const FALLBACK_RULES: &str = r#"
@@ -78,7 +86,10 @@ impl Shields {
 }
 
 fn site_host(url: &str) -> Option<String> {
-    Url::parse(url).ok()?.host_str().map(|host| host.to_ascii_lowercase())
+    Url::parse(url)
+        .ok()?
+        .host_str()
+        .map(|host| host.to_ascii_lowercase())
 }
 
 #[cfg(test)]

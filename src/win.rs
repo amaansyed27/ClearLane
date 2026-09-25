@@ -10,9 +10,14 @@ unsafe extern "C" fn RunWinMain(
     let _ = api_hash(sys::CEF_API_VERSION_LAST, 0);
     let main_args = MainArgs { instance };
     let args = args::Args::from(main_args);
-    let Some(command_line) = args.as_cmd_line() else { return 1; };
+    let Some(command_line) = args.as_cmd_line() else {
+        return 1;
+    };
     match crate::chromium::run(args.as_main_args(), &command_line, sandbox_info) {
         Ok(()) => 0,
-        Err(error) => { eprintln!("ClearLane startup failed: {error}"); 1 }
+        Err(error) => {
+            eprintln!("ClearLane startup failed: {error}");
+            1
+        }
     }
 }

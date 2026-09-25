@@ -1,6 +1,8 @@
 #[cfg(all(target_os = "windows", feature = "sandbox"))]
 fn main() -> Result<(), &'static str> {
-    Err("ClearLane's Windows sandbox build must be launched from the bundled clearlane.exe. Run scripts/setup.ps1 first.")
+    Err(
+        "ClearLane's Windows sandbox build must be launched from the bundled clearlane.exe. Run scripts/setup.ps1 first.",
+    )
 }
 
 #[cfg(all(target_os = "windows", not(feature = "sandbox")))]
