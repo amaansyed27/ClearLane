@@ -32,9 +32,11 @@ impl EngineSet {
     pub(crate) fn attach(&mut self, tab_id: TabId, browser: Browser) {
         self.browsers.insert(tab_id, browser);
     }
+
     pub(crate) fn detach(&mut self, tab_id: TabId) {
         self.browsers.remove(&tab_id);
     }
+
     pub(crate) fn is_empty(&self) -> bool {
         self.browsers.is_empty()
     }
@@ -42,6 +44,7 @@ impl EngineSet {
     fn clone_browser(&self, tab_id: TabId) -> Option<Browser> {
         self.browsers.get(&tab_id).cloned()
     }
+
     fn clone_all(&self) -> Vec<Browser> {
         self.browsers.values().cloned().collect()
     }
@@ -59,10 +62,11 @@ impl EngineSet {
             let Some(host) = browser.host() else {
                 continue;
             };
-            let handle = host.window_handle() as usize as HWND;
+            let handle: HWND = host.window_handle().0;
             if handle.is_null() {
                 continue;
             }
+            // SAFETY: CEF owns this child HWND and it remains valid while BrowserHost is alive.
             unsafe {
                 SetWindowPos(
                     handle,
@@ -95,7 +99,7 @@ pub(crate) fn create_browser(
     url: &str,
 ) {
     let window_info = WindowInfo::default().set_as_child(
-        parent as usize as sys::cef_window_handle_t,
+        sys::HWND(parent),
         &Rect {
             x: bounds.x,
             y: bounds.y,
@@ -144,6 +148,7 @@ pub(crate) fn navigate_active(runtime: &Arc<Mutex<Runtime>>, url: &str) {
         frame.load_url(Some(&CefString::from(url)));
     }
 }
+
 pub(crate) fn go_back_active(runtime: &Arc<Mutex<Runtime>>) {
     if let Some(browser) = active_browser(runtime) {
         if browser.can_go_back() != 0 {
@@ -151,6 +156,7 @@ pub(crate) fn go_back_active(runtime: &Arc<Mutex<Runtime>>) {
         }
     }
 }
+
 pub(crate) fn go_forward_active(runtime: &Arc<Mutex<Runtime>>) {
     if let Some(browser) = active_browser(runtime) {
         if browser.can_go_forward() != 0 {
@@ -158,11 +164,13 @@ pub(crate) fn go_forward_active(runtime: &Arc<Mutex<Runtime>>) {
         }
     }
 }
+
 pub(crate) fn reload_active(runtime: &Arc<Mutex<Runtime>>) {
     if let Some(browser) = active_browser(runtime) {
         browser.reload();
     }
 }
+
 pub(crate) fn stop_active(runtime: &Arc<Mutex<Runtime>>) {
     if let Some(browser) = active_browser(runtime) {
         browser.stop_load();
@@ -170,8 +178,7 @@ pub(crate) fn stop_active(runtime: &Arc<Mutex<Runtime>>) {
 }
 
 pub(crate) fn close_active(runtime: &Arc<Mutex<Runtime>>, force: bool) {
-    let browser = active_browser(runtime);
-    if let Some(browser) = browser {
+    if let Some(browser) = active_browser(runtime) {
         close_browser(browser, force);
     }
 }
@@ -184,6 +191,7 @@ pub(crate) fn close_all(runtime: &Arc<Mutex<Runtime>>, force: bool) {
         (locked.engine.clone_all(), locked.hwnd)
     };
     if browsers.is_empty() {
+        // SAFETY: hwnd is the live top-level ClearLane window.
         unsafe {
             windows_sys::Win32::UI::WindowsAndMessaging::DestroyWindow(hwnd);
         }
@@ -232,7 +240,6 @@ pub(crate) fn run(
         root_cache_path: cache.clone(),
         cache_path: cache,
         persist_session_cookies: 1,
-        persist_user_preferences: 1,
         ..Default::default()
     };
     if initialize(

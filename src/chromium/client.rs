@@ -132,7 +132,7 @@ wrap_resource_request_handler! {
             _callback: Option<&mut Callback>,
         ) -> ReturnValue {
             let Some(request) = request else { return ReturnValue::CONTINUE; };
-            let request_url = request.url().to_string();
+            let request_url = CefStringUtf16::from(&request.url()).to_string();
             let blocked = self.context.shields.lock().map(|mut shields| {
                 shields.should_block(self.context.tab_id.0, &self.initiator, &request_url)
             }).unwrap_or(false);

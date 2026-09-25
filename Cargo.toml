@@ -19,7 +19,7 @@ sandbox = ["cef/sandbox"]
 [dependencies]
 adblock = { version = "0.13.3", default-features = false, features = ["embedded-domain-resolver", "full-regex-handling"] }
 base64 = "0.22"
-cef = { version = "=154.0.0+154.0.23", default-features = false, features = ["build-util"] }
+cef = { version = "=154.0.0", default-features = false, features = ["build-util"] }
 rusqlite = { version = "0.37", features = ["bundled"] }
 url = "2.5"
 
@@ -31,5 +31,6 @@ windows-sys = { version = "0.61", features = [
     "Win32_UI_Controls",
     "Win32_UI_HiDpi",
     "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",
 ] }
