@@ -8,10 +8,10 @@ pub fn normalize_omnibox(input: &str) -> Option<String> {
         return None;
     }
 
-    if let Ok(url) = Url::parse(input) {
-        if matches!(url.scheme(), "http" | "https") {
-            return Some(url.into());
-        }
+    if let Ok(url) = Url::parse(input)
+        && matches!(url.scheme(), "http" | "https")
+    {
+        return Some(url.into());
     }
 
     if !input.chars().any(char::is_whitespace) && !input.contains('\\') {
