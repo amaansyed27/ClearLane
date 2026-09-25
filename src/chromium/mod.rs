@@ -62,7 +62,7 @@ impl EngineSet {
             let Some(host) = browser.host() else {
                 continue;
             };
-            let handle: HWND = host.window_handle().0;
+            let handle: HWND = host.window_handle().0.cast();
             if handle.is_null() {
                 continue;
             }
@@ -99,7 +99,7 @@ pub(crate) fn create_browser(
     url: &str,
 ) {
     let window_info = WindowInfo::default().set_as_child(
-        sys::HWND(parent),
+        sys::HWND(parent.cast()),
         &Rect {
             x: bounds.x,
             y: bounds.y,
