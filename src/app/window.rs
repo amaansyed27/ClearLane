@@ -744,14 +744,8 @@ mod tests {
 
     #[test]
     fn programmatic_omnibox_notifications_do_not_submit_navigation() {
-        assert_eq!(
-            classify_command(ID_OMNIBOX, EN_CHANGE as usize, 1),
-            None
-        );
-        assert_eq!(
-            classify_command(ID_OMNIBOX, EN_UPDATE as usize, 1),
-            None
-        );
+        assert_eq!(classify_command(ID_OMNIBOX, EN_CHANGE as usize, 1), None);
+        assert_eq!(classify_command(ID_OMNIBOX, EN_UPDATE as usize, 1), None);
         assert_eq!(
             classify_command(ID_OMNIBOX, 0, 0),
             Some(CommandAction::SubmitOmnibox)
