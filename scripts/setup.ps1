@@ -10,6 +10,12 @@ if (-not (Get-Command ninja -ErrorAction SilentlyContinue)) {
     throw "Ninja was not found. Install it with: winget install Ninja-build.Ninja, then reopen PowerShell."
 }
 
+$runningClearLane = Get-Process clearlane -ErrorAction SilentlyContinue
+if ($runningClearLane) {
+    $ids = ($runningClearLane | Select-Object -ExpandProperty Id) -join ", "
+    throw "ClearLane is still running (PID(s): $ids) and will lock the CEF bundle during rebuild. Close ClearLane or run: Get-Process clearlane -ErrorAction SilentlyContinue | Stop-Process -Force"
+}
+
 $root = Split-Path -Parent $PSScriptRoot
 $filterDir = Join-Path $env:LOCALAPPDATA "ClearLane\filters"
 New-Item -ItemType Directory -Force -Path $filterDir | Out-Null
