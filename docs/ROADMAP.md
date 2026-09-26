@@ -2,13 +2,16 @@
 
 ## Current stage
 
-**Stage 0 — Foundation**
+**Slice 1 — Browser Alpha: implementation ready, manual Windows verification pending**
 
 - [x] Product direction recorded
 - [x] Minimal system boundaries recorded
 - [x] Performance discipline recorded
 - [x] Agent instructions recorded
-- [ ] Slice 1 implementation started
+- [x] Slice 1 implementation started
+- [x] Slice 1 implementation ready for manual Windows verification
+- [ ] Slice 1 manual Windows verification complete
+- [ ] Slice 1 implementation PR merged
 
 The project deliberately uses only **three implementation slices**. Do not split them into many artificial milestones just to make agent work look smaller.
 
