@@ -3,6 +3,12 @@ $ErrorActionPreference = "Stop"
 if (-not (Get-Command cargo -ErrorAction SilentlyContinue)) {
     throw "Rust/Cargo was not found. Install Rust stable from https://rustup.rs and reopen PowerShell."
 }
+if (-not (Get-Command cmake -ErrorAction SilentlyContinue)) {
+    throw "CMake was not found. Install CMake and reopen PowerShell."
+}
+if (-not (Get-Command ninja -ErrorAction SilentlyContinue)) {
+    throw "Ninja was not found. Install it with: winget install Ninja-build.Ninja, then reopen PowerShell."
+}
 
 $root = Split-Path -Parent $PSScriptRoot
 $filterDir = Join-Path $env:LOCALAPPDATA "ClearLane\filters"
