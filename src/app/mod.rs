@@ -181,21 +181,50 @@ impl Runtime {
 }
 
 pub(crate) fn launch(state_dir: PathBuf) -> Result<Arc<Mutex<Runtime>>, String> {
+    crate::win::startup_log("app launch: creating state directory");
     fs::create_dir_all(&state_dir).map_err(|error| error.to_string())?;
+
+    crate::win::startup_log("app launch: loading persisted state");
     let persistence = Persistence::new(&state_dir);
     let saved = persistence.load();
-    let shields = Arc::new(Mutex::new(Shields::load(
-        &state_dir.join("filters"),
-        saved.disabled_shields,
+    crate::win::startup_log("app launch: persisted state loaded");
+
+    // Keep startup responsive: use the small built-in blocker immediately. EasyList and
+    // EasyPrivacy are substantially larger and are compiled in the background after the
+    // native browser shell is visible, then atomically swapped into the shared Shields state.
+    let filter_dir = state_dir.join("filters");
+    crate::win::startup_log("app launch: building fallback Shields engine");
+    let shields = Arc::new(Mutex::new(Shields::fallback(
+        saved.disabled_shields.clone(),
     )));
+    crate::win::startup_log("app launch: fallback Shields engine ready");
+    let shields_for_full_load = shields.clone();
+
     let runtime = Arc::new(Mutex::new(Runtime::empty(
         state_dir,
         persistence,
         shields,
         saved.sidebar_open,
     )));
-    window::create(runtime.clone())?;
 
+    crate::win::startup_log("app launch: creating native window");
+    window::create(runtime.clone())?;
+    crate::win::startup_log("app launch: native window created");
+
+    let _ = std::thread::Builder::new()
+        .name("clearlane-shields-loader".into())
+        .spawn(move || {
+            crate::win::startup_log("full Shields filter compilation started");
+            let engine = Shields::build_full_engine(&filter_dir);
+            if let Ok(mut shields) = shields_for_full_load.lock() {
+                shields.replace_engine(engine);
+                crate::win::startup_log("full Shields filter compilation completed");
+            } else {
+                crate::win::startup_log("full Shields filter compilation could not acquire lock");
+            }
+        });
+
+    crate::win::startup_log("app launch: opening restored tabs");
     let perf_tabs = perf_tab_count();
     let mut urls = if perf_tabs > 0 {
         perf_urls(perf_tabs)
@@ -231,6 +260,7 @@ pub(crate) fn launch(state_dir: PathBuf) -> Result<Arc<Mutex<Runtime>>, String> 
     if let Some(id) = active_id {
         activate_tab(&runtime, id);
     }
+    crate::win::startup_log("app launch: restored tabs opened");
     Ok(runtime)
 }
 
