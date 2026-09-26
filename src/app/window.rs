@@ -1,4 +1,5 @@
 use std::{
+    cell::Cell,
     ffi::c_void,
     sync::{Arc, Mutex},
 };
@@ -32,6 +33,32 @@ const ID_SHIELDS: usize = 106;
 const ID_TAB_LIST: usize = 107;
 const ID_NEW_TAB: usize = 108;
 const ID_CLOSE_TAB: usize = 109;
+
+thread_local! {
+    /// Native controls synchronously notify their parent while some properties are changed.
+    /// `refresh` is normally called while the Runtime mutex is held, so handling those
+    /// notifications as user input would recursively lock Runtime and deadlock the UI thread.
+    static UI_UPDATE_DEPTH: Cell<u32> = const { Cell::new(0) };
+}
+
+struct UiUpdateGuard;
+
+impl UiUpdateGuard {
+    fn enter() -> Self {
+        UI_UPDATE_DEPTH.with(|depth| depth.set(depth.get().saturating_add(1)));
+        Self
+    }
+}
+
+impl Drop for UiUpdateGuard {
+    fn drop(&mut self) {
+        UI_UPDATE_DEPTH.with(|depth| depth.set(depth.get().saturating_sub(1)));
+    }
+}
+
+fn ui_update_in_progress() -> bool {
+    UI_UPDATE_DEPTH.with(|depth| depth.get() != 0)
+}
 
 #[derive(Clone, Copy)]
 pub(crate) struct Controls {
@@ -77,7 +104,6 @@ pub(crate) fn create(runtime: Arc<Mutex<Runtime>>) -> Result<(), String> {
         crate::win::startup_log("window create: module handle obtained");
 
         let class = wide(CLASS_NAME);
-        crate::win::startup_log("window create: preparing window class");
         let window_class = WNDCLASSW {
             style: CS_HREDRAW | CS_VREDRAW,
             lpfnWndProc: Some(wnd_proc),
@@ -113,17 +139,14 @@ pub(crate) fn create(runtime: Arc<Mutex<Runtime>>) -> Result<(), String> {
         );
         crate::win::startup_log("window create: CreateWindowExW returned");
         if hwnd.is_null() {
-            // If WM_NCDESTROY ran during failed creation it owns the boxed Arc. Clear
-            // user data before freeing here so ownership remains unambiguous.
-            let stored = GetWindowLongPtrW(hwnd, GWLP_USERDATA);
-            if stored == 0 {
-                drop(Box::from_raw(raw_runtime));
-            }
+            // Window creation did not establish a usable top-level HWND. In the normal
+            // failure path Windows has not retained lpCreateParams, so release our Arc.
+            drop(Box::from_raw(raw_runtime));
             return Err("CreateWindowExW failed".to_string());
         }
 
         crate::win::startup_log("window create: creating child controls");
-        let controls = create_controls(hwnd, instance);
+        let controls = create_controls(hwnd, instance)?;
         crate::win::startup_log("window create: child controls created");
         {
             crate::win::startup_log("window create: locking runtime for initial layout");
@@ -138,6 +161,7 @@ pub(crate) fn create(runtime: Arc<Mutex<Runtime>>) -> Result<(), String> {
             refresh(&mut locked);
             crate::win::startup_log("window create: initial layout complete");
         }
+
         crate::win::startup_log("window create: showing window");
         ShowWindow(hwnd, SW_SHOW);
         crate::win::startup_log("window create: updating window");
@@ -147,12 +171,13 @@ pub(crate) fn create(runtime: Arc<Mutex<Runtime>>) -> Result<(), String> {
     }
 }
 
-fn create_controls(hwnd: HWND, instance: *mut c_void) -> Controls {
+fn create_controls(hwnd: HWND, instance: *mut c_void) -> Result<Controls, String> {
     // SAFETY: child controls use `hwnd` as their lifetime-owning parent and valid static classes.
     unsafe {
         let button = wide("BUTTON");
         let edit = wide("EDIT");
         let listbox = wide("LISTBOX");
+
         let sidebar_toggle = create_control(
             hwnd,
             instance,
@@ -245,6 +270,7 @@ fn create_controls(hwnd: HWND, instance: *mut c_void) -> Controls {
             instance,
             std::ptr::null(),
         );
+
         let controls = Controls {
             sidebar_toggle,
             back,
@@ -258,24 +284,44 @@ fn create_controls(hwnd: HWND, instance: *mut c_void) -> Controls {
             new_tab,
             close_tab,
         };
+
+        if [
+            controls.sidebar_toggle,
+            controls.back,
+            controls.forward,
+            controls.reload,
+            controls.stop,
+            controls.omnibox,
+            controls.shields,
+            controls.sidebar,
+            controls.tab_list,
+            controls.new_tab,
+            controls.close_tab,
+        ]
+        .iter()
+        .any(|handle| handle.is_null())
+        {
+            return Err("failed to create one or more native browser controls".into());
+        }
+
         let font = GetStockObject(DEFAULT_GUI_FONT);
         for control in [
-            sidebar_toggle,
-            back,
-            forward,
-            reload,
-            stop,
-            omnibox,
-            shields,
-            sidebar,
-            tab_list,
-            new_tab,
-            close_tab,
+            controls.sidebar_toggle,
+            controls.back,
+            controls.forward,
+            controls.reload,
+            controls.stop,
+            controls.omnibox,
+            controls.shields,
+            controls.sidebar,
+            controls.tab_list,
+            controls.new_tab,
+            controls.close_tab,
         ] {
             SendMessageW(control, WM_SETFONT, font as usize, 1);
         }
-        SetWindowSubclass(omnibox, Some(omnibox_proc), 1, hwnd as usize);
-        controls
+        SetWindowSubclass(controls.omnibox, Some(omnibox_proc), 1, hwnd as usize);
+        Ok(controls)
     }
 }
 
@@ -343,6 +389,7 @@ fn layout(runtime: &mut Runtime) {
         let sidebar_width = if runtime.sidebar_open { s(224) } else { 0 };
         let shields_width = s(116);
         let mut x = gap;
+
         for control in [
             runtime.controls.sidebar_toggle,
             runtime.controls.back,
@@ -353,6 +400,7 @@ fn layout(runtime: &mut Runtime) {
             MoveWindow(control, x, s(6), button, s(34), 1);
             x += button + gap;
         }
+
         let omnibox_width = (rect.right - x - shields_width - gap * 2).max(s(140));
         MoveWindow(runtime.controls.omnibox, x, s(8), omnibox_width, s(30), 1);
         MoveWindow(
@@ -425,6 +473,12 @@ pub(crate) fn refresh(runtime: &mut Runtime) {
     if runtime.controls.omnibox.is_null() {
         return;
     }
+
+    // Win32 edit/list controls can synchronously send WM_COMMAND while they are updated.
+    // Mark this scope so the parent procedure cannot mistake those notifications for user input
+    // and recursively acquire the already-held Runtime mutex.
+    let _ui_update = UiUpdateGuard::enter();
+
     // SAFETY: all controls are valid child HWNDs while the main window is alive.
     unsafe {
         SendMessageW(runtime.controls.tab_list, LB_RESETCONTENT, 0, 0);
@@ -447,6 +501,7 @@ pub(crate) fn refresh(runtime: &mut Runtime) {
                 SendMessageW(runtime.controls.tab_list, LB_SETCURSEL, index, 0);
             }
         }
+
         if let Some(tab) = runtime.state.active() {
             set_text(runtime.controls.omnibox, &tab.url);
             let (enabled, count) = runtime
@@ -493,6 +548,40 @@ fn set_text(hwnd: HWND, text: &str) {
     // SAFETY: the UTF-16 buffer is NUL-terminated and lives through the synchronous call.
     unsafe {
         SetWindowTextW(hwnd, wide(text).as_ptr());
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CommandAction {
+    ToggleSidebar,
+    Back,
+    Forward,
+    Reload,
+    Stop,
+    SubmitOmnibox,
+    ToggleShields,
+    NewTab,
+    CloseTab,
+    SelectTab,
+}
+
+fn classify_command(id: usize, notification: usize, lparam: LPARAM) -> Option<CommandAction> {
+    let clicked = notification == BN_CLICKED as usize;
+    match id {
+        ID_SIDEBAR_TOGGLE if clicked => Some(CommandAction::ToggleSidebar),
+        ID_BACK if clicked => Some(CommandAction::Back),
+        ID_FORWARD if clicked => Some(CommandAction::Forward),
+        ID_RELOAD if clicked => Some(CommandAction::Reload),
+        ID_STOP if clicked => Some(CommandAction::Stop),
+        // The omnibox subclass posts this synthetic command with lParam=0 when Enter is pressed.
+        // Native EDIT notifications such as EN_UPDATE/EN_CHANGE include the control HWND and must
+        // never be interpreted as navigation requests.
+        ID_OMNIBOX if notification == 0 && lparam == 0 => Some(CommandAction::SubmitOmnibox),
+        ID_SHIELDS if clicked => Some(CommandAction::ToggleShields),
+        ID_NEW_TAB if clicked => Some(CommandAction::NewTab),
+        ID_CLOSE_TAB if clicked => Some(CommandAction::CloseTab),
+        ID_TAB_LIST if notification == LBN_SELCHANGE as usize => Some(CommandAction::SelectTab),
+        _ => None,
     }
 }
 
@@ -546,37 +635,45 @@ unsafe extern "system" fn wnd_proc(
 
         match msg {
             WM_COMMAND => {
-                if let Some(runtime) = runtime {
-                    let id = wparam & 0xffff;
-                    let notification = (wparam >> 16) & 0xffff;
-                    match id {
-                        ID_SIDEBAR_TOGGLE => app::toggle_sidebar(&runtime),
-                        ID_BACK => app::go_back(&runtime),
-                        ID_FORWARD => app::go_forward(&runtime),
-                        ID_RELOAD => app::reload(&runtime),
-                        ID_STOP => app::stop(&runtime),
-                        ID_OMNIBOX => app::navigate_from_omnibox(&runtime),
-                        ID_SHIELDS => app::toggle_shields(&runtime),
-                        ID_NEW_TAB => {
-                            app::open_tab(&runtime, "https://www.google.com/".into());
-                        }
-                        ID_CLOSE_TAB => app::close_active_tab(&runtime),
-                        ID_TAB_LIST if notification == LBN_SELCHANGE as usize => {
-                            if let Ok(locked) = runtime.lock() {
-                                let index =
-                                    SendMessageW(locked.controls.tab_list, LB_GETCURSEL, 0, 0);
-                                let tab = if index >= 0 {
-                                    locked.state.tabs().get(index as usize).map(|tab| tab.id)
-                                } else {
-                                    None
-                                };
-                                drop(locked);
-                                if let Some(tab) = tab {
-                                    app::activate_tab(&runtime, tab);
-                                }
+                // Ignore synchronous notifications generated by our own control refreshes.
+                if ui_update_in_progress() {
+                    return 0;
+                }
+
+                let id = wparam & 0xffff;
+                let notification = (wparam >> 16) & 0xffff;
+                let Some(action) = classify_command(id, notification, lparam) else {
+                    return 0;
+                };
+                let Some(runtime) = runtime else {
+                    return 0;
+                };
+
+                match action {
+                    CommandAction::ToggleSidebar => app::toggle_sidebar(&runtime),
+                    CommandAction::Back => app::go_back(&runtime),
+                    CommandAction::Forward => app::go_forward(&runtime),
+                    CommandAction::Reload => app::reload(&runtime),
+                    CommandAction::Stop => app::stop(&runtime),
+                    CommandAction::SubmitOmnibox => app::navigate_from_omnibox(&runtime),
+                    CommandAction::ToggleShields => app::toggle_shields(&runtime),
+                    CommandAction::NewTab => {
+                        app::open_tab(&runtime, "https://www.google.com/".into());
+                    }
+                    CommandAction::CloseTab => app::close_active_tab(&runtime),
+                    CommandAction::SelectTab => {
+                        if let Ok(locked) = runtime.lock() {
+                            let index = SendMessageW(locked.controls.tab_list, LB_GETCURSEL, 0, 0);
+                            let tab = if index >= 0 {
+                                locked.state.tabs().get(index as usize).map(|tab| tab.id)
+                            } else {
+                                None
+                            };
+                            drop(locked);
+                            if let Some(tab) = tab {
+                                app::activate_tab(&runtime, tab);
                             }
                         }
-                        _ => {}
                     }
                 }
                 0
@@ -639,4 +736,38 @@ unsafe extern "system" fn wnd_proc(
 
 fn wide(value: &str) -> Vec<u16> {
     value.encode_utf16().chain(std::iter::once(0)).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn programmatic_omnibox_notifications_do_not_submit_navigation() {
+        assert_eq!(
+            classify_command(ID_OMNIBOX, EN_CHANGE as usize, 1),
+            None
+        );
+        assert_eq!(
+            classify_command(ID_OMNIBOX, EN_UPDATE as usize, 1),
+            None
+        );
+        assert_eq!(
+            classify_command(ID_OMNIBOX, 0, 0),
+            Some(CommandAction::SubmitOmnibox)
+        );
+    }
+
+    #[test]
+    fn controls_require_their_expected_notification_codes() {
+        assert_eq!(
+            classify_command(ID_BACK, BN_CLICKED as usize, 1),
+            Some(CommandAction::Back)
+        );
+        assert_eq!(classify_command(ID_BACK, EN_CHANGE as usize, 1), None);
+        assert_eq!(
+            classify_command(ID_TAB_LIST, LBN_SELCHANGE as usize, 1),
+            Some(CommandAction::SelectTab)
+        );
+    }
 }
