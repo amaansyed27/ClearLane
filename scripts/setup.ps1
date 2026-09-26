@@ -17,6 +17,7 @@ if ($runningClearLane) {
 }
 
 $root = Split-Path -Parent $PSScriptRoot
+$bundleDir = Join-Path $root "target\bundle"
 $filterDir = Join-Path $env:LOCALAPPDATA "ClearLane\filters"
 New-Item -ItemType Directory -Force -Path $filterDir | Out-Null
 
@@ -26,6 +27,10 @@ try {
     Invoke-WebRequest -UseBasicParsing "https://easylist.to/easylist/easyprivacy.txt" -OutFile (Join-Path $filterDir "easyprivacy.txt")
 } catch {
     Write-Warning "Filter-list download failed. ClearLane will still use its small built-in fallback list."
+}
+
+if (Test-Path $bundleDir) {
+    Remove-Item -Recurse -Force $bundleDir
 }
 
 Push-Location $root
