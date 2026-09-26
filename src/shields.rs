@@ -27,19 +27,28 @@ pub struct Shields {
 }
 
 impl Shields {
-    pub fn load(filter_dir: &Path, disabled_sites: HashSet<String>) -> Self {
-        let mut set = FilterSet::new(false);
-        set.add_filter_list(FALLBACK_RULES.to_string(), ParseOptions::default());
-        for name in ["easylist.txt", "easyprivacy.txt"] {
-            if let Ok(text) = fs::read_to_string(filter_dir.join(name)) {
-                set.add_filter_list(text, ParseOptions::default());
-            }
-        }
+    pub fn fallback(disabled_sites: HashSet<String>) -> Self {
         Self {
-            engine: Engine::new_with_filter_set(set),
+            engine: build_engine(None),
             disabled_sites,
             blocked_by_tab: HashMap::new(),
         }
+    }
+
+    pub fn load(filter_dir: &Path, disabled_sites: HashSet<String>) -> Self {
+        Self {
+            engine: build_engine(Some(filter_dir)),
+            disabled_sites,
+            blocked_by_tab: HashMap::new(),
+        }
+    }
+
+    pub fn build_full_engine(filter_dir: &Path) -> Engine {
+        build_engine(Some(filter_dir))
+    }
+
+    pub fn replace_engine(&mut self, engine: Engine) {
+        self.engine = engine;
     }
 
     pub fn should_block(&mut self, tab_id: u64, page_url: &str, request_url: &str) -> bool {
@@ -83,6 +92,19 @@ impl Shields {
     pub fn disabled_sites(&self) -> HashSet<String> {
         self.disabled_sites.clone()
     }
+}
+
+fn build_engine(filter_dir: Option<&Path>) -> Engine {
+    let mut set = FilterSet::new(false);
+    set.add_filter_list(FALLBACK_RULES.to_string(), ParseOptions::default());
+    if let Some(filter_dir) = filter_dir {
+        for name in ["easylist.txt", "easyprivacy.txt"] {
+            if let Ok(text) = fs::read_to_string(filter_dir.join(name)) {
+                set.add_filter_list(text, ParseOptions::default());
+            }
+        }
+    }
+    Engine::new_with_filter_set(set)
 }
 
 fn site_host(url: &str) -> Option<String> {
