@@ -214,8 +214,14 @@ pub(crate) fn run(
     sandbox_info: *mut u8,
 ) -> Result<(), String> {
     let switch = CefString::from("type");
+    let process_type = command_line.switch_value(Some(&switch)).to_string();
     let browser_process = command_line.has_switch(Some(&switch)) != 1;
+    crate::win::startup_log(&format!(
+        "process classified browser_process={browser_process} type='{process_type}'"
+    ));
+    crate::win::startup_log("calling execute_process");
     let ret = execute_process(Some(main_args), None, sandbox_info);
+    crate::win::startup_log(&format!("execute_process returned {ret}"));
     if !browser_process {
         return if ret >= 0 {
             Ok(())
@@ -233,6 +239,11 @@ pub(crate) fn run(
     std::fs::create_dir_all(&state_dir).map_err(|error| error.to_string())?;
     let cache_dir = crate::app::chromium_cache_dir(&state_dir);
     std::fs::create_dir_all(&cache_dir).map_err(|error| error.to_string())?;
+    crate::win::startup_log(&format!(
+        "browser process state_dir='{}' cache_dir='{}'",
+        state_dir.display(),
+        cache_dir.display()
+    ));
     let cache = CefString::from(cache_dir.to_string_lossy().as_ref());
     let mut app = ClearLaneApp::new(state_dir);
     let settings = Settings {
@@ -242,17 +253,22 @@ pub(crate) fn run(
         persist_session_cookies: 1,
         ..Default::default()
     };
-    if initialize(
+    crate::win::startup_log("calling cef_initialize");
+    let initialized = initialize(
         Some(main_args),
         Some(&settings),
         Some(&mut app),
         sandbox_info,
-    ) != 1
-    {
+    );
+    crate::win::startup_log(&format!("cef_initialize returned {initialized}"));
+    if initialized != 1 {
         return Err("CEF initialization failed".into());
     }
+    crate::win::startup_log("entering CEF message loop");
     run_message_loop();
+    crate::win::startup_log("CEF message loop exited");
     shutdown();
+    crate::win::startup_log("CEF shutdown complete");
     Ok(())
 }
 
@@ -260,6 +276,7 @@ wrap_app! {
     struct ClearLaneApp { state_dir: std::path::PathBuf }
     impl App {
         fn browser_process_handler(&self) -> Option<BrowserProcessHandler> {
+            crate::win::startup_log("browser_process_handler requested");
             Some(ClearLaneBrowserProcessHandler::new(self.state_dir.clone()))
         }
     }
@@ -269,10 +286,17 @@ wrap_browser_process_handler! {
     struct ClearLaneBrowserProcessHandler { state_dir: std::path::PathBuf }
     impl BrowserProcessHandler {
         fn on_context_initialized(&self) {
+            crate::win::startup_log("on_context_initialized entered");
             debug_assert_ne!(currently_on(ThreadId::UI), 0);
-            if let Err(error) = crate::app::launch(self.state_dir.clone()) {
-                eprintln!("ClearLane failed to create its browser window: {error}");
-                quit_message_loop();
+            match crate::app::launch(self.state_dir.clone()) {
+                Ok(_) => crate::win::startup_log("native ClearLane window launch completed"),
+                Err(error) => {
+                    crate::win::startup_log(&format!(
+                        "native ClearLane window launch failed: {error}"
+                    ));
+                    eprintln!("ClearLane failed to create its browser window: {error}");
+                    quit_message_loop();
+                }
             }
         }
     }
