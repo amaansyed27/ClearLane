@@ -6,7 +6,7 @@ use std::{
 
 use cef::*;
 
-fn startup_log(message: &str) {
+pub(crate) fn startup_log(message: &str) {
     let base = std::env::var_os("LOCALAPPDATA")
         .map(PathBuf::from)
         .unwrap_or_else(std::env::temp_dir)
