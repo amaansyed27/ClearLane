@@ -214,7 +214,7 @@ pub(crate) fn run(
     sandbox_info: *mut u8,
 ) -> Result<(), String> {
     let switch = CefString::from("type");
-    let process_type = command_line.switch_value(Some(&switch)).to_string();
+    let process_type = CefString::from(&command_line.switch_value(Some(&switch))).to_string();
     let browser_process = command_line.has_switch(Some(&switch)) != 1;
     crate::win::startup_log(&format!(
         "process classified browser_process={browser_process} type='{process_type}'"
