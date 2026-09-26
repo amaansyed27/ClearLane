@@ -8,10 +8,7 @@ use windows_sys::Win32::{
     Graphics::Gdi::{COLOR_WINDOW, DEFAULT_GUI_FONT, GetStockObject, UpdateWindow},
     System::LibraryLoader::GetModuleHandleW,
     UI::{
-        HiDpi::{
-            DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, GetDpiForWindow,
-            SetProcessDpiAwarenessContext,
-        },
+        HiDpi::GetDpiForWindow,
         Input::KeyboardAndMouse::VK_RETURN,
         Shell::{DefSubclassProc, SetWindowSubclass},
         WindowsAndMessaging::*,
@@ -70,11 +67,17 @@ impl Default for Controls {
 }
 
 pub(crate) fn create(runtime: Arc<Mutex<Runtime>>) -> Result<(), String> {
+    crate::win::startup_log("window create: entered");
     // SAFETY: all handles created here remain owned by the UI thread until WM_NCDESTROY.
     unsafe {
-        let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+        // CEF establishes the process DPI mode during its own Windows startup. Do not
+        // mutate process-wide DPI awareness here after CEF has already initialized.
+        crate::win::startup_log("window create: obtaining module handle");
         let instance = GetModuleHandleW(std::ptr::null());
+        crate::win::startup_log("window create: module handle obtained");
+
         let class = wide(CLASS_NAME);
+        crate::win::startup_log("window create: preparing window class");
         let window_class = WNDCLASSW {
             style: CS_HREDRAW | CS_VREDRAW,
             lpfnWndProc: Some(wnd_proc),
@@ -87,10 +90,13 @@ pub(crate) fn create(runtime: Arc<Mutex<Runtime>>) -> Result<(), String> {
             lpszMenuName: std::ptr::null(),
             lpszClassName: class.as_ptr(),
         };
+        crate::win::startup_log("window create: registering window class");
         RegisterClassW(&window_class);
+        crate::win::startup_log("window create: window class registered");
 
         let raw_runtime = Box::into_raw(Box::new(runtime.clone()));
         let title = wide("ClearLane");
+        crate::win::startup_log("window create: calling CreateWindowExW");
         let hwnd = CreateWindowExW(
             0,
             class.as_ptr(),
@@ -105,23 +111,38 @@ pub(crate) fn create(runtime: Arc<Mutex<Runtime>>) -> Result<(), String> {
             instance,
             raw_runtime.cast::<c_void>(),
         );
+        crate::win::startup_log("window create: CreateWindowExW returned");
         if hwnd.is_null() {
-            drop(Box::from_raw(raw_runtime));
+            // If WM_NCDESTROY ran during failed creation it owns the boxed Arc. Clear
+            // user data before freeing here so ownership remains unambiguous.
+            let stored = GetWindowLongPtrW(hwnd, GWLP_USERDATA);
+            if stored == 0 {
+                drop(Box::from_raw(raw_runtime));
+            }
             return Err("CreateWindowExW failed".to_string());
         }
 
+        crate::win::startup_log("window create: creating child controls");
         let controls = create_controls(hwnd, instance);
+        crate::win::startup_log("window create: child controls created");
         {
+            crate::win::startup_log("window create: locking runtime for initial layout");
             let mut locked = runtime
                 .lock()
                 .map_err(|_| "Runtime lock poisoned".to_string())?;
             locked.hwnd = hwnd;
             locked.controls = controls;
+            crate::win::startup_log("window create: laying out controls");
             layout(&mut locked);
+            crate::win::startup_log("window create: refreshing controls");
             refresh(&mut locked);
+            crate::win::startup_log("window create: initial layout complete");
         }
+        crate::win::startup_log("window create: showing window");
         ShowWindow(hwnd, SW_SHOW);
+        crate::win::startup_log("window create: updating window");
         UpdateWindow(hwnd);
+        crate::win::startup_log("window create: completed");
         Ok(())
     }
 }
@@ -502,9 +523,20 @@ unsafe extern "system" fn wnd_proc(
     // SAFETY: Windows invokes this callback with Win32 message-contract arguments.
     unsafe {
         if msg == WM_NCCREATE {
+            crate::win::startup_log("window proc: WM_NCCREATE");
             let create = &*(lparam as *const CREATESTRUCTW);
             SetWindowLongPtrW(hwnd, GWLP_USERDATA, create.lpCreateParams as isize);
         }
+        if msg == WM_CREATE {
+            crate::win::startup_log("window proc: WM_CREATE");
+        }
+        if msg == WM_SIZE {
+            crate::win::startup_log("window proc: WM_SIZE");
+        }
+        if msg == WM_SHOWWINDOW {
+            crate::win::startup_log("window proc: WM_SHOWWINDOW");
+        }
+
         let ptr = GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut Arc<Mutex<Runtime>>;
         let runtime = if ptr.is_null() {
             None
