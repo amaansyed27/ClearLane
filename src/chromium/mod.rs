@@ -282,6 +282,38 @@ pub(crate) fn run(
 wrap_app! {
     struct ClearLaneApp { state_dir: std::path::PathBuf }
     impl App {
+        fn on_before_command_line_processing(
+            &self,
+            process_type: Option<&CefStringUtf16>,
+            command_line: Option<&mut CommandLine>,
+        ) {
+            let Some(command_line) = command_line else { return; };
+            let is_browser_process = process_type
+                .map(|process_type| process_type.to_string().is_empty())
+                .unwrap_or(true);
+            if !is_browser_process {
+                return;
+            }
+
+            // Keep Chromium's sandbox, GPU acceleration and site isolation intact. These switches
+            // only turn off browser services ClearLane does not expose or need in Browser Alpha.
+            for switch in [
+                "disable-background-networking",
+                "disable-component-update",
+                "disable-default-apps",
+                "disable-domain-reliability",
+                "disable-extensions",
+                "disable-sync",
+                "no-first-run",
+            ] {
+                command_line.append_switch(Some(&CefString::from(switch)));
+            }
+            command_line.append_switch_with_value(
+                Some(&CefString::from("disable-features")),
+                Some(&CefString::from("MediaRouter,OptimizationHints")),
+            );
+        }
+
         fn browser_process_handler(&self) -> Option<BrowserProcessHandler> {
             crate::win::startup_log("browser_process_handler requested");
             Some(ClearLaneBrowserProcessHandler::new(self.state_dir.clone()))
