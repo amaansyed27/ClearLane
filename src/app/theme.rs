@@ -1,4 +1,4 @@
-use eframe::egui::{self, Color32, CornerRadius, Stroke, Vec2};
+use eframe::egui::{self, Color32, CornerRadius, Stroke, Theme, ThemePreference, Vec2};
 
 pub const SHELL_BG: Color32 = Color32::from_rgb(242, 243, 244);
 pub const SIDEBAR_BG: Color32 = Color32::from_rgb(235, 237, 239);
@@ -15,7 +15,9 @@ pub const ACCENT_SOFT: Color32 = Color32::from_rgb(221, 230, 253);
 pub const SAFE: Color32 = Color32::from_rgb(45, 122, 82);
 
 pub fn apply(ctx: &egui::Context) {
-    let mut style = (*ctx.style()).clone();
+    ctx.options_mut(|options| options.theme_preference = ThemePreference::Light);
+
+    let mut style = (*ctx.style_of(Theme::Light)).clone();
     let mut visuals = egui::Visuals::light();
     visuals.panel_fill = SHELL_BG;
     visuals.window_fill = PAGE_BG;
@@ -48,5 +50,5 @@ pub fn apply(ctx: &egui::Context) {
     style.spacing.item_spacing = Vec2::new(6.0, 6.0);
     style.spacing.button_padding = Vec2::new(8.0, 6.0);
     style.spacing.interact_size.y = 32.0;
-    ctx.set_style(style);
+    ctx.set_style_of(Theme::Light, style);
 }
