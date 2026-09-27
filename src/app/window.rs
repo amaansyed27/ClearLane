@@ -43,6 +43,7 @@ const ID_TAB_LIST: usize = 107;
 const ID_NEW_TAB: usize = 108;
 const ID_CLOSE_TAB: usize = 109;
 const ID_OMNIBOX_SURFACE: usize = 110;
+const SS_OWNERDRAW_STYLE: u32 = 13;
 
 const TOOLBAR_DIP: i32 = 54;
 const SIDEBAR_DIP: i32 = 232;
@@ -250,7 +251,7 @@ fn create_controls(hwnd: HWND, instance: *mut c_void) -> Result<Controls, String
             0,
             static_class.as_ptr(),
             std::ptr::null(),
-            WS_CHILD | WS_VISIBLE | SS_OWNERDRAW as u32,
+            WS_CHILD | WS_VISIBLE | SS_OWNERDRAW_STYLE,
             0,
             0,
             100,
@@ -582,14 +583,12 @@ pub(crate) fn refresh(runtime: &mut Runtime) {
                     )
                 })
                 .unwrap_or((true, 0));
-            set_text(
-                runtime.controls.shields,
-                if enabled {
-                    &format!("◇ {count}")
-                } else {
-                    "◇ Off"
-                },
-            );
+            let shields_label = if enabled {
+                format!("◇ {count}")
+            } else {
+                "◇ Off".to_string()
+            };
+            set_text(runtime.controls.shields, &shields_label);
             let title = if tab.title.trim().is_empty() {
                 "ClearLane".to_string()
             } else {
