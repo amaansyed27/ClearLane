@@ -221,9 +221,15 @@ mod tests {
         assert!(browser.navigate(tab, "https://two.example"));
         assert!(browser.tab(tab).is_some_and(TabState::can_go_back));
         assert!(browser.go_back(tab));
-        assert_eq!(browser.tab(tab).map(|tab| tab.url.as_str()), Some("https://one.example"));
+        assert_eq!(
+            browser.tab(tab).map(|tab| tab.url.as_str()),
+            Some("https://one.example")
+        );
         assert!(browser.go_forward(tab));
-        assert_eq!(browser.tab(tab).map(|tab| tab.url.as_str()), Some("https://two.example"));
+        assert_eq!(
+            browser.tab(tab).map(|tab| tab.url.as_str()),
+            Some("https://two.example")
+        );
     }
 
     #[test]
