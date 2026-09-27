@@ -74,6 +74,31 @@ wrap_life_span_handler! {
 wrap_load_handler! {
     struct ClearLaneLoadHandler { context: ClientContext }
     impl LoadHandler {
+        fn on_load_start(
+            &self,
+            _browser: Option<&mut Browser>,
+            frame: Option<&mut Frame>,
+            _transition_type: TransitionType,
+        ) {
+            let Some(frame) = frame else { return; };
+            if frame.is_main() == 0 { return; }
+
+            let page_url = CefString::from(&frame.url()).to_string();
+            let script = self
+                .context
+                .shields
+                .lock()
+                .ok()
+                .and_then(|shields| shields.cosmetic_script(&page_url));
+            if let Some(script) = script {
+                frame.execute_java_script(
+                    Some(&CefString::from(script.as_str())),
+                    Some(&CefString::from("clearlane://shields")),
+                    0,
+                );
+            }
+        }
+
         fn on_loading_state_change(&self, _browser: Option<&mut Browser>, is_loading: i32, can_go_back: i32, can_go_forward: i32) {
             if let Some(runtime) = app::runtime_from_weak(&self.context.runtime) {
                 if let Ok(mut runtime) = runtime.lock() {
@@ -142,8 +167,16 @@ wrap_resource_request_handler! {
             }
             let Some(request) = request else { return ReturnValue::CONTINUE; };
             let request_url = CefStringUtf16::from(&request.url()).to_string();
+            let method = CefStringUtf16::from(&request.method()).to_string();
+            let resource_type = cef_resource_type_to_adblock(request.resource_type());
             let blocked = self.context.shields.lock().map(|mut shields| {
-                shields.should_block(self.context.tab_id.0, &self.initiator, &request_url)
+                shields.should_block(
+                    self.context.tab_id.0,
+                    &self.initiator,
+                    &request_url,
+                    resource_type,
+                    &method,
+                )
             }).unwrap_or(false);
             if blocked {
                 if let Some(runtime) = app::runtime_from_weak(&self.context.runtime) {
@@ -158,6 +191,29 @@ wrap_resource_request_handler! {
         fn on_protocol_execution(&self, _browser: Option<&mut Browser>, _frame: Option<&mut Frame>, _request: Option<&mut Request>, allow_os_execution: Option<&mut i32>) {
             if let Some(allow) = allow_os_execution { *allow = 0; }
         }
+    }
+}
+
+fn cef_resource_type_to_adblock(resource_type: ResourceType) -> &'static str {
+    match resource_type {
+        ResourceType::MAIN_FRAME => "main_frame",
+        ResourceType::SUB_FRAME => "sub_frame",
+        ResourceType::STYLESHEET => "stylesheet",
+        ResourceType::SCRIPT => "script",
+        ResourceType::IMAGE => "image",
+        ResourceType::FONT_RESOURCE => "font",
+        ResourceType::SUB_RESOURCE => "object_subrequest",
+        ResourceType::OBJECT => "object",
+        ResourceType::MEDIA => "media",
+        ResourceType::WORKER | ResourceType::SHARED_WORKER | ResourceType::SERVICE_WORKER => "script",
+        ResourceType::FAVICON => "image",
+        ResourceType::XHR => "xhr",
+        ResourceType::PING => "ping",
+        ResourceType::CSP_REPORT => "csp_report",
+        ResourceType::PLUGIN_RESOURCE => "object",
+        ResourceType::NAVIGATION_PRELOAD_MAIN_FRAME => "main_frame",
+        ResourceType::NAVIGATION_PRELOAD_SUB_FRAME => "sub_frame",
+        _ => "other",
     }
 }
 
@@ -178,4 +234,17 @@ fn html_escape(value: &str) -> String {
         .replace('<', "&lt;")
         .replace('>', "&gt;")
         .replace('"', "&quot;")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn maps_cef_resource_types_for_filter_matching() {
+        assert_eq!(cef_resource_type_to_adblock(ResourceType::SCRIPT), "script");
+        assert_eq!(cef_resource_type_to_adblock(ResourceType::IMAGE), "image");
+        assert_eq!(cef_resource_type_to_adblock(ResourceType::XHR), "xhr");
+        assert_eq!(cef_resource_type_to_adblock(ResourceType::MEDIA), "media");
+    }
 }
