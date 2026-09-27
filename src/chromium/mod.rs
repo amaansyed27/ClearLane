@@ -98,7 +98,14 @@ pub(crate) fn create_browser(
     tab_id: TabId,
     url: &str,
 ) {
-    let window_info = WindowInfo::default().set_as_child(
+    // CEF's default runtime is Chrome-style in current releases. That runtime owns its own
+    // top-level Chrome UI even if Win32 child-window parameters are supplied. ClearLane owns
+    // all browser chrome, so force Alloy before embedding the browser HWND in our native shell.
+    let window_info = WindowInfo {
+        runtime_style: RuntimeStyle::ALLOY,
+        ..Default::default()
+    }
+    .set_as_child(
         sys::HWND(parent.cast()),
         &Rect {
             x: bounds.x,
