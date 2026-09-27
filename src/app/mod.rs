@@ -11,7 +11,9 @@ use std::{
 
 use windows_sys::Win32::{
     Foundation::HWND,
-    UI::WindowsAndMessaging::{DestroyWindow, PostMessageW, SW_HIDE, SW_SHOW, ShowWindow},
+    UI::WindowsAndMessaging::{
+        DestroyWindow, PostMessageW, SW_HIDE, SW_SHOW, ShowWindow, WM_COMMAND,
+    },
 };
 
 use crate::{
@@ -189,9 +191,10 @@ pub(crate) fn launch(state_dir: PathBuf) -> Result<Arc<Mutex<Runtime>>, String> 
     let saved = persistence.load();
     crate::win::startup_log("app launch: persisted state loaded");
 
-    // Keep startup responsive: use the small built-in blocker immediately. EasyList and
-    // EasyPrivacy are substantially larger and are compiled in the background after the
-    // native browser shell is visible, then atomically swapped into the shared Shields state.
+    // Start with the small built-in blocker so the native shell and first page can appear quickly.
+    // The complete EasyList/EasyPrivacy/uBO engine is compiled immediately after restored tabs are
+    // created. Once that swap finishes we reload the active tab exactly once so page-start
+    // scriptlets and cosmetic rules run from navigation start instead of arriving too late.
     let filter_dir = state_dir.join("filters");
     crate::win::startup_log("app launch: building fallback Shields engine");
     let shields = Arc::new(Mutex::new(Shields::fallback(
@@ -210,19 +213,6 @@ pub(crate) fn launch(state_dir: PathBuf) -> Result<Arc<Mutex<Runtime>>, String> 
     crate::win::startup_log("app launch: creating native window");
     window::create(runtime.clone())?;
     crate::win::startup_log("app launch: native window created");
-
-    let _ = std::thread::Builder::new()
-        .name("clearlane-shields-loader".into())
-        .spawn(move || {
-            crate::win::startup_log("full Shields filter compilation started");
-            let engine = Shields::build_full_engine(&filter_dir);
-            if let Ok(mut shields) = shields_for_full_load.lock() {
-                shields.replace_engine(engine);
-                crate::win::startup_log("full Shields filter compilation completed");
-            } else {
-                crate::win::startup_log("full Shields filter compilation could not acquire lock");
-            }
-        });
 
     crate::win::startup_log("app launch: opening restored tabs");
     let perf_tabs = perf_tab_count();
@@ -261,6 +251,46 @@ pub(crate) fn launch(state_dir: PathBuf) -> Result<Arc<Mutex<Runtime>>, String> 
         activate_tab(&runtime, id);
     }
     crate::win::startup_log("app launch: restored tabs opened");
+
+    let runtime_for_full_load = Arc::downgrade(&runtime);
+    let loader = std::thread::Builder::new()
+        .name("clearlane-shields-loader".into())
+        .spawn(move || {
+            crate::win::startup_log("full Shields filter compilation started");
+            let engine = Shields::build_full_engine(&filter_dir);
+            let replaced = if let Ok(mut shields) = shields_for_full_load.lock() {
+                shields.replace_engine(engine);
+                crate::win::startup_log("full Shields filter compilation completed");
+                true
+            } else {
+                crate::win::startup_log("full Shields filter compilation could not acquire lock");
+                false
+            };
+
+            if replaced
+                && let Some(runtime) = runtime_from_weak(&runtime_for_full_load)
+                && let Ok(locked) = runtime.lock()
+                && !locked.hwnd.is_null()
+            {
+                // Run the full network/cosmetic/scriptlet engine from the beginning of one fresh
+                // navigation. Posting a native command keeps all CEF browser interaction on the
+                // UI thread rather than touching BrowserHost from the loader thread.
+                unsafe {
+                    PostMessageW(
+                        locked.hwnd,
+                        WM_COMMAND,
+                        window::RELOAD_COMMAND_ID,
+                        0,
+                    );
+                }
+            }
+        });
+    if let Err(error) = loader {
+        crate::win::startup_log(&format!(
+            "full Shields loader thread could not start: {error}"
+        ));
+    }
+
     Ok(runtime)
 }
 
