@@ -276,7 +276,12 @@ pub(crate) fn launch(state_dir: PathBuf) -> Result<Arc<Mutex<Runtime>>, String> 
                 // navigation. The loader carries only an integer window token; posting the native
                 // command is thread-safe and all CEF browser interaction stays on the UI thread.
                 unsafe {
-                    PostMessageW(reload_hwnd as HWND, WM_COMMAND, window::RELOAD_COMMAND_ID, 0);
+                    PostMessageW(
+                        reload_hwnd as HWND,
+                        WM_COMMAND,
+                        window::RELOAD_COMMAND_ID,
+                        0,
+                    );
                 }
             }
         });
