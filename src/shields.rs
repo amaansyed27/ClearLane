@@ -8,7 +8,7 @@ use adblock::{
     Engine,
     lists::{FilterSet, ParseOptions},
     request::Request,
-    resources::Resource,
+    resources::{PermissionMask, Resource},
 };
 use url::Url;
 
@@ -28,6 +28,8 @@ const FILTER_FILES: &[&str] = &[
     "ublock-privacy.txt",
     "ublock-quick-fixes.txt",
 ];
+
+const UBO_PERMISSION: PermissionMask = PermissionMask::from_bits(0b0000_0001);
 
 pub struct Shields {
     engine: Engine,
@@ -158,7 +160,18 @@ fn build_engine(filter_dir: Option<&Path>) -> Engine {
     if let Some(filter_dir) = filter_dir {
         for name in FILTER_FILES {
             if let Ok(text) = fs::read_to_string(filter_dir.join(name)) {
-                set.add_filter_list(text, ParseOptions::default());
+                let permissions = if name.starts_with("ublock-") {
+                    UBO_PERMISSION
+                } else {
+                    PermissionMask::default()
+                };
+                set.add_filter_list(
+                    text,
+                    ParseOptions {
+                        permissions,
+                        ..ParseOptions::default()
+                    },
+                );
             }
         }
     }
