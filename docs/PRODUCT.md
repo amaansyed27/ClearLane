@@ -9,10 +9,21 @@ It should feel direct, fast, calm, capable, and user-controlled. "Minimal" means
 ## Core product goals
 
 1. **User first** — simple everyday browsing with a strong feature set.
-2. **Native Shields** — ads and trackers blocked in the request path by default.
+2. **Native Shields** — ads and trackers blocked in the browser path by default.
 3. **Performance first** — startup, memory, idle work, tab lifecycle, and responsiveness are continuously measured.
 4. **Agent-ready** — browser internals are structured so tools can later control the web without screenshot-heavy loops.
 5. **Customizable** — strong defaults, with meaningful layout and workflow choices.
+
+## Quality bar learned from Slice 1
+
+The first runnable alpha experiment failed the manual gate. That failure establishes explicit product rules:
+
+- A functional shell that looks like a developer tool is not an acceptable browser UI.
+- Raw/default/owner-drawn Win32 controls are not the ClearLane visual language merely because they are native and lightweight.
+- CI success does not compensate for poor interaction or visual quality.
+- A Shields block counter does not compensate for visible ads still playing.
+- A memory script does not establish a competitive performance claim without comparable competitor measurements.
+- Do not ask the user to repeatedly rebuild a full Chromium integration just to review elementary layout/spacing changes. Prototype and approve the browser chrome first.
 
 ## Human-browser feature set
 
@@ -50,7 +61,9 @@ ClearLane may learn from existing browsers without copying their appearance:
 - **Firefox:** user control, vertical/horizontal tab flexibility, configurable browser chrome.
 - **Safari:** restrained browser chrome and clear visual priority for the page itself.
 
-For each UI feature, study the interaction pattern before implementing it. Do not combine all reference features into one screen by default.
+For each UI feature, study the interaction pattern before implementing it. Also inspect current production browser screenshots, platform conventions, accessibility expectations, and maintained component/framework examples relevant to the chosen implementation stack.
+
+Do not combine all reference features into one screen by default.
 
 ## Visual and interaction constraints
 
@@ -62,6 +75,23 @@ For each UI feature, study the interaction pattern before implementing it. Do no
 - Keyboard and accessibility behavior are first-class, not cleanup work.
 - Avoid generic SaaS dashboards, card grids, excessive rounded containers, glassmorphism, ornamental gradients, AI sparkles, and decorative side panels.
 - Do not introduce a distinctive aesthetic before the underlying interaction has been validated.
+- Do not use the assistant's taste as evidence. Use references, product requirements, and user review.
+
+## Slice 1.5 shell gate
+
+Before Chromium is deeply integrated into the replacement shell, the user should be able to judge a lightweight prototype containing representative fake/local state for:
+
+- sidebar and tabs
+- active/inactive/hover states
+- omnibox
+- navigation controls
+- Shields indicator
+- resizing
+- typography and spacing
+
+The implementation should iterate on this shell until the user considers it credible enough to become the browser foundation.
+
+This is not a request for visual novelty. It is a request to avoid locking poor browser chrome behind expensive engine integration.
 
 ## Shields UX
 
@@ -75,6 +105,18 @@ The normal per-site surface should answer only:
 
 Expert filter controls may exist later in settings, but should not dominate ordinary browsing.
 
+For correctness, the internal implementation must be judged by representative real pages, not merely the number shown in the UI.
+
+## Performance UX
+
+Efficiency should be felt as well as benchmarked:
+
+- startup should not feel delayed by browser-owned setup work that can be cached/prepared,
+- restoring many tabs should not eagerly wake every renderer,
+- inactive tabs should not compete needlessly with the active page,
+- tab reactivation should remain predictable,
+- ClearLane should never trade away browser security for a lower Task Manager number.
+
 ## Agentic direction
 
 Agentic capability is infrastructure before it is a consumer feature.
@@ -84,10 +126,10 @@ ClearLane should eventually expose structured browser state and deterministic ac
 The eventual agent layer should support ideas such as:
 
 - CDP/Playwright compatibility
-- Stable element references
-- Structured accessibility/page snapshots
-- Incremental page-state deltas
-- Network/console access where explicitly permitted
+- stable element references
+- structured accessibility/page snapshots
+- incremental page-state deltas
+- network/console access where explicitly permitted
 - MCP/native control surfaces
 
 There is **no Superagent UI in the initial browser roadmap**. It begins only after the human browser meets its quality bar.
@@ -95,9 +137,9 @@ There is **no Superagent UI in the initial browser roadmap**. It begins only aft
 ## Non-goals for the initial browser
 
 - AI chat sidebar
-- News/feed new-tab page
-- Rewards/crypto/VPN bundles
-- Cloud account requirement
-- Theme marketplace
-- Novel interaction for novelty's sake
-- Reimplementing Chromium web-platform features in Rust
+- news/feed new-tab page
+- rewards/crypto/VPN bundles
+- cloud account requirement
+- theme marketplace
+- novel interaction for novelty's sake
+- reimplementing Chromium web-platform features in Rust
