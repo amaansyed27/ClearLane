@@ -9,15 +9,16 @@ use windows_sys::Win32::{
     Graphics::{
         Dwm::{DWMWA_USE_IMMERSIVE_DARK_MODE, DwmSetWindowAttribute},
         Gdi::{
-            CreateSolidBrush, DEFAULT_GUI_FONT, DrawTextW, FillRect, GetStockObject, NULL_PEN,
-            RoundRect, SelectObject, SetBkColor, SetBkMode, SetTextColor, TRANSPARENT,
-            UpdateWindow,
+            CreateSolidBrush, DEFAULT_GUI_FONT, DT_CENTER, DT_END_ELLIPSIS, DT_LEFT, DT_NOPREFIX,
+            DT_SINGLELINE, DT_VCENTER, DrawTextW, FillRect, GetStockObject, InvalidateRect, NULL_PEN,
+            RoundRect, SelectObject, SetBkColor, SetBkMode, SetTextColor, TRANSPARENT, UpdateWindow,
         },
     },
     System::LibraryLoader::GetModuleHandleW,
     UI::{
+        Controls::*,
         HiDpi::GetDpiForWindow,
-        Input::KeyboardAndMouse::VK_RETURN,
+        Input::KeyboardAndMouse::{EnableWindow, VK_RETURN},
         Shell::{DefSubclassProc, SetWindowSubclass},
         WindowsAndMessaging::*,
     },
@@ -223,7 +224,7 @@ unsafe fn apply_native_frame(hwnd: HWND) {
     unsafe {
         let _ = DwmSetWindowAttribute(
             hwnd,
-            DWMWA_USE_IMMERSIVE_DARK_MODE,
+            DWMWA_USE_IMMERSIVE_DARK_MODE as u32,
             (&dark as *const i32).cast::<c_void>(),
             std::mem::size_of_val(&dark) as u32,
         );
@@ -362,11 +363,10 @@ fn create_controls(hwnd: HWND, instance: *mut c_void) -> Result<Controls, String
             SendMessageW(control, WM_SETFONT, font as usize, 1);
         }
 
-        // Keep text away from the rounded omnibox edges while the EDIT itself stays borderless.
         SendMessageW(
             controls.omnibox,
             EM_SETMARGINS,
-            EC_LEFTMARGIN | EC_RIGHTMARGIN,
+            (EC_LEFTMARGIN | EC_RIGHTMARGIN) as usize,
             0,
         );
         SetWindowSubclass(controls.omnibox, Some(omnibox_proc), 1, hwnd as usize);
@@ -685,7 +685,7 @@ unsafe fn draw_button(item: &DRAWITEMSTRUCT) {
             let _ = windows_sys::Win32::Graphics::Gdi::DeleteObject(brush);
         }
 
-        SetBkMode(item.hDC, TRANSPARENT);
+        SetBkMode(item.hDC, TRANSPARENT as i32);
         SetTextColor(item.hDC, if disabled { COLOR_MUTED } else { COLOR_TEXT });
         let text = control_text(item.hwndItem);
         let mut rect = item.rcItem;
@@ -739,7 +739,7 @@ unsafe fn draw_tab(item: &DRAWITEMSTRUCT) {
             text.as_mut_ptr() as isize,
         );
 
-        SetBkMode(item.hDC, TRANSPARENT);
+        SetBkMode(item.hDC, TRANSPARENT as i32);
         SetTextColor(item.hDC, if selected { COLOR_TEXT } else { COLOR_MUTED });
         let mut rect = item.rcItem;
         rect.left += 12;
