@@ -29,6 +29,52 @@ function Get-ProcessTree([int]$RootPid) {
     @(Get-Process -Id $ids.ToArray() -ErrorAction SilentlyContinue)
 }
 
+function Get-RoleMemory([System.Diagnostics.Process[]]$Processes, [int]$RootPid) {
+    $ids = New-Object System.Collections.Generic.HashSet[int]
+    foreach ($process in $Processes) { [void]$ids.Add([int]$process.Id) }
+
+    $commandLines = @{}
+    foreach ($item in Get-CimInstance Win32_Process) {
+        if ($ids.Contains([int]$item.ProcessId)) {
+            $commandLines[[int]$item.ProcessId] = [string]$item.CommandLine
+        }
+    }
+
+    $bytes = @{
+        browser = 0L
+        renderer = 0L
+        gpu = 0L
+        utility = 0L
+        other = 0L
+    }
+
+    foreach ($process in $Processes) {
+        $role = "other"
+        if ($process.Id -eq $RootPid) {
+            $role = "browser"
+        } else {
+            $commandLine = $commandLines[[int]$process.Id]
+            if ($commandLine -match '--type=([^\s"]+)') {
+                switch ($Matches[1]) {
+                    "renderer" { $role = "renderer" }
+                    "gpu-process" { $role = "gpu" }
+                    "utility" { $role = "utility" }
+                    default { $role = "other" }
+                }
+            }
+        }
+        $bytes[$role] += [int64]$process.WorkingSet64
+    }
+
+    [pscustomobject]@{
+        browser_mb = [math]::Round($bytes.browser / 1MB, 1)
+        renderer_mb = [math]::Round($bytes.renderer / 1MB, 1)
+        gpu_mb = [math]::Round($bytes.gpu / 1MB, 1)
+        utility_mb = [math]::Round($bytes.utility / 1MB, 1)
+        other_mb = [math]::Round($bytes.other / 1MB, 1)
+    }
+}
+
 function Get-Median([double[]]$Values) {
     if ($Values.Count -eq 0) { return $null }
     $sorted = @($Values | Sort-Object)
@@ -56,6 +102,7 @@ function Measure-Run([string]$Label, [int]$Tabs) {
     $tree2 = Get-ProcessTree $p.Id
     $cpu2 = ($tree2 | Measure-Object CPU -Sum).Sum
     $memoryMb = [math]::Round((($tree2 | Measure-Object WorkingSet64 -Sum).Sum / 1MB), 1)
+    $roles = Get-RoleMemory $tree2 $p.Id
     $idleCpuPct = [math]::Round((($cpu2 - $cpu1) / 2.0 / [Environment]::ProcessorCount) * 100.0, 2)
 
     $loadTimes = @()
@@ -73,7 +120,13 @@ function Measure-Run([string]$Label, [int]$Tabs) {
         label = $Label
         tabs = $Tabs
         startup_ms = $startupMs
+        process_count = $tree2.Count
         working_set_mb = $memoryMb
+        browser_ws_mb = $roles.browser_mb
+        renderer_ws_mb = $roles.renderer_mb
+        gpu_ws_mb = $roles.gpu_mb
+        utility_ws_mb = $roles.utility_mb
+        other_ws_mb = $roles.other_mb
         idle_cpu_pct = $idleCpuPct
         page_load_samples = $loadTimes.Count
         page_load_median_ms = Get-Median $loadTimes
@@ -90,7 +143,8 @@ foreach ($tabs in $TabCounts | Where-Object { $_ -ne 1 }) { Measure-Run "tabs-$t
 
 $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $out = Join-Path $resultDir "baseline-$stamp.json"
-$rows | ConvertTo-Json | Set-Content -Encoding UTF8 $out
+$rows | ConvertTo-Json -Depth 4 | Set-Content -Encoding UTF8 $out
 $rows | Format-Table -AutoSize
 Write-Host "Saved: $out"
+Write-Host "Memory is split by Chromium process role so regressions can be traced instead of relying on Task Manager's aggregate alone."
 Write-Host "Note: 'cold-ish' is a fresh process, not a guaranteed OS disk-cache purge. Page-load timing uses ClearLane load-complete events. Compare browsers on the same machine and procedure."
