@@ -177,12 +177,11 @@ fn build_engine(filter_dir: Option<&Path>) -> Engine {
     }
 
     let mut engine = Engine::new_with_filter_set(set);
-    if let Some(filter_dir) = filter_dir {
-        if let Ok(text) = fs::read_to_string(filter_dir.join("resources.json")) {
-            if let Ok(resources) = serde_json::from_str::<Vec<Resource>>(&text) {
-                engine.use_resources(resources);
-            }
-        }
+    if let Some(filter_dir) = filter_dir
+        && let Ok(text) = fs::read_to_string(filter_dir.join("resources.json"))
+        && let Ok(resources) = serde_json::from_str::<Vec<Resource>>(&text)
+    {
+        engine.use_resources(resources);
     }
     engine
 }
