@@ -196,6 +196,18 @@ fn site_host(url: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use adblock::resources::{MimeType, ResourceType};
+    use base64::{Engine as _, engine::general_purpose::STANDARD};
+
+    fn test_dir(name: &str) -> std::path::PathBuf {
+        let path = std::env::temp_dir().join(format!(
+            "clearlane-shields-{name}-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&path);
+        fs::create_dir_all(&path).expect("create Shields test directory");
+        path
+    }
 
     #[test]
     fn fallback_rules_block_known_tracker() {
@@ -209,6 +221,61 @@ mod tests {
             "get"
         ));
         assert_eq!(shields.blocked_count(1), 1);
+    }
+
+    #[test]
+    fn resource_type_specific_rules_are_respected() {
+        let temp = test_dir("typed-network");
+        fs::write(temp.join("easylist.txt"), "||ads.example^$script\n")
+            .expect("write test filter list");
+        let mut shields = Shields::load(&temp, HashSet::new());
+
+        assert!(shields.should_block(
+            1,
+            "https://site.example/",
+            "https://ads.example/ad.js",
+            "script",
+            "get"
+        ));
+        assert!(!shields.should_block(
+            1,
+            "https://site.example/",
+            "https://ads.example/banner.png",
+            "image",
+            "get"
+        ));
+        let _ = fs::remove_dir_all(temp);
+    }
+
+    #[test]
+    fn official_ublock_scriptlets_are_authorized_and_emitted() {
+        let temp = test_dir("scriptlet");
+        fs::write(
+            temp.join("ublock-filters.txt"),
+            "example.com##+js(clearlane-test)\n",
+        )
+        .expect("write scriptlet filter");
+
+        let resources = vec![Resource {
+            name: "clearlane-test.js".into(),
+            aliases: vec!["clearlane-test".into()],
+            kind: ResourceType::Mime(MimeType::ApplicationJavascript),
+            content: STANDARD.encode("window.__clearlane_scriptlet_test = 1;"),
+            dependencies: vec![],
+            permission: UBO_PERMISSION,
+        }];
+        fs::write(
+            temp.join("resources.json"),
+            serde_json::to_string(&resources).expect("serialize test resources"),
+        )
+        .expect("write scriptlet resources");
+
+        let shields = Shields::load(&temp, HashSet::new());
+        let script = shields
+            .cosmetic_script("https://example.com/")
+            .expect("scriptlet should be emitted");
+        assert!(script.contains("__clearlane_scriptlet_test"));
+        let _ = fs::remove_dir_all(temp);
     }
 
     #[test]
