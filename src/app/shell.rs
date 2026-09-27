@@ -1,6 +1,6 @@
 use eframe::egui::{
-    self, Align, Button, CentralPanel, FontId, Frame, Id, Key, Layout, Margin, RichText,
-    SidePanel, Stroke, TextEdit, TopBottomPanel, Vec2,
+    self, Align, Button, CentralPanel, FontId, Frame, Id, Key, Layout, Margin, RichText, SidePanel,
+    Stroke, TextEdit, TopBottomPanel, Vec2,
 };
 
 use crate::core::{BrowserState, TabId, normalize_omnibox};
@@ -155,12 +155,7 @@ impl ClearLaneShell {
 
                 ui.add_space(18.0);
                 if self.sidebar_expanded {
-                    ui.label(
-                        RichText::new("BROWSING")
-                            .size(10.0)
-                            .strong()
-                            .color(FAINT),
-                    );
+                    ui.label(RichText::new("BROWSING").size(10.0).strong().color(FAINT));
                     ui.add_space(4.0);
                 }
 
@@ -202,7 +197,11 @@ impl ClearLaneShell {
                 }
 
                 ui.add_space(6.0);
-                let new_tab_label = if self.sidebar_expanded { "+   New tab" } else { "+" };
+                let new_tab_label = if self.sidebar_expanded {
+                    "+   New tab"
+                } else {
+                    "+"
+                };
                 if ui
                     .add(
                         Button::new(RichText::new(new_tab_label).size(13.5).color(MUTED))
@@ -218,7 +217,11 @@ impl ClearLaneShell {
 
                 ui.with_layout(Layout::bottom_up(Align::Min), |ui| {
                     if self.sidebar_expanded {
-                        ui.label(RichText::new("Gate A · local shell").size(10.5).color(FAINT));
+                        ui.label(
+                            RichText::new("Gate A · local shell")
+                                .size(10.5)
+                                .color(FAINT),
+                        );
                     }
                 });
             });
@@ -267,13 +270,14 @@ impl ClearLaneShell {
                     ui.add_space(2.0);
                     let omnibox_width = (ui.available_width() - 88.0).max(220.0);
                     let focused = ctx.memory(|memory| memory.has_focus(self.omnibox_id));
-                    let omnibox_frame = Frame::new()
-                        .fill(OMNIBOX_BG)
-                        .corner_radius(9)
-                        .stroke(Stroke::new(
-                            if focused { 1.25 } else { 1.0 },
-                            if focused { ACCENT } else { BORDER },
-                        ));
+                    let omnibox_frame =
+                        Frame::new()
+                            .fill(OMNIBOX_BG)
+                            .corner_radius(9)
+                            .stroke(Stroke::new(
+                                if focused { 1.25 } else { 1.0 },
+                                if focused { ACCENT } else { BORDER },
+                            ));
                     let response = ui.add_sized(
                         [omnibox_width, 35.0],
                         TextEdit::singleline(&mut self.omnibox)
@@ -297,10 +301,12 @@ impl ClearLaneShell {
                         let shield_color = if tab.shields_enabled { SAFE } else { MUTED };
                         if ui
                             .add(
-                                Button::new(RichText::new(shield_text).size(12.5).color(shield_color))
-                                    .min_size(Vec2::new(76.0, 32.0))
-                                    .corner_radius(7)
-                                    .frame_when_inactive(false),
+                                Button::new(
+                                    RichText::new(shield_text).size(12.5).color(shield_color),
+                                )
+                                .min_size(Vec2::new(76.0, 32.0))
+                                .corner_radius(7)
+                                .frame_when_inactive(false),
                             )
                             .on_hover_text("Shields protection")
                             .clicked()
@@ -394,10 +400,14 @@ impl eframe::App for ClearLaneShell {
 fn chrome_button(ui: &mut egui::Ui, glyph: &str, hover: &str, enabled: bool) -> egui::Response {
     ui.add_enabled(
         enabled,
-        Button::new(RichText::new(glyph).size(19.0).color(if enabled { TEXT } else { FAINT }))
-            .min_size(Vec2::splat(32.0))
-            .corner_radius(7)
-            .frame_when_inactive(false),
+        Button::new(
+            RichText::new(glyph)
+                .size(19.0)
+                .color(if enabled { TEXT } else { FAINT }),
+        )
+        .min_size(Vec2::splat(32.0))
+        .corner_radius(7)
+        .frame_when_inactive(false),
     )
     .on_hover_text(hover)
 }
