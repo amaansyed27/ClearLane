@@ -205,7 +205,9 @@ fn cef_resource_type_to_adblock(resource_type: ResourceType) -> &'static str {
         ResourceType::SUB_RESOURCE => "object_subrequest",
         ResourceType::OBJECT => "object",
         ResourceType::MEDIA => "media",
-        ResourceType::WORKER | ResourceType::SHARED_WORKER | ResourceType::SERVICE_WORKER => "script",
+        ResourceType::WORKER | ResourceType::SHARED_WORKER | ResourceType::SERVICE_WORKER => {
+            "script"
+        }
         ResourceType::FAVICON => "image",
         ResourceType::XHR => "xhr",
         ResourceType::PING => "ping",
