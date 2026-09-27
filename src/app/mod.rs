@@ -252,7 +252,11 @@ pub(crate) fn launch(state_dir: PathBuf) -> Result<Arc<Mutex<Runtime>>, String> 
     }
     crate::win::startup_log("app launch: restored tabs opened");
 
-    let runtime_for_full_load = Arc::downgrade(&runtime);
+    let reload_hwnd = runtime
+        .lock()
+        .map(|locked| locked.hwnd as usize)
+        .unwrap_or_default();
+    let reload_when_ready = perf_tabs == 0;
     let loader = std::thread::Builder::new()
         .name("clearlane-shields-loader".into())
         .spawn(move || {
@@ -267,16 +271,17 @@ pub(crate) fn launch(state_dir: PathBuf) -> Result<Arc<Mutex<Runtime>>, String> 
                 false
             };
 
-            if replaced
-                && let Some(runtime) = runtime_from_weak(&runtime_for_full_load)
-                && let Ok(locked) = runtime.lock()
-                && !locked.hwnd.is_null()
-            {
+            if replaced && reload_when_ready && reload_hwnd != 0 {
                 // Run the full network/cosmetic/scriptlet engine from the beginning of one fresh
-                // navigation. Posting a native command keeps all CEF browser interaction on the
-                // UI thread rather than touching BrowserHost from the loader thread.
+                // navigation. The loader carries only an integer window token; posting the native
+                // command is thread-safe and all CEF browser interaction stays on the UI thread.
                 unsafe {
-                    PostMessageW(locked.hwnd, WM_COMMAND, window::RELOAD_COMMAND_ID, 0);
+                    PostMessageW(
+                        reload_hwnd as HWND,
+                        WM_COMMAND,
+                        window::RELOAD_COMMAND_ID,
+                        0,
+                    );
                 }
             }
         });
