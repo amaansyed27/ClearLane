@@ -1,0 +1,57 @@
+name: Windows CI
+
+on:
+  push:
+    branches: [main, slice-1-5-browser-alpha-reset]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: windows-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  gate-a:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      - name: PowerShell syntax
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            "${{ github.workspace }}\scripts\run-shell.ps1",
+            [ref]$tokens,
+            [ref]$errors
+          ) | Out-Null
+          if ($errors.Count -gt 0) {
+            $errors | ForEach-Object { Write-Error $_ }
+            exit 1
+          }
+
+      - name: Format
+        run: cargo fmt --all -- --check
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+      - name: Test
+        run: cargo test --workspace --all-features
+      - name: Build release shell
+        run: cargo build --release
+
+      - name: Upload Gate A shell
+        uses: actions/upload-artifact@v4
+        with:
+          name: clearlane-gate-a-shell
+          path: target/release/clearlane.exe
+          if-no-files-found: error
