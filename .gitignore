@@ -1,24 +1,15 @@
 # Rust
 /target/
+Cargo.lock
 
-# IDE / OS
-.vs/
+# ClearLane local/runtime data
+perf-results/
+*.db
+*.db-shm
+*.db-wal
+
+# Editors / OS
+.vscode/
 .idea/
-*.user
 .DS_Store
 Thumbs.db
-
-# Local browser/runtime state
-/cef_cache/
-/profile/
-/profiles/
-/crash_dumps/
-
-# Local build / benchmark output
-/artifacts/
-/benchmarks/results/
-
-# Local environment files
-.env
-.env.*
-!.env.example
