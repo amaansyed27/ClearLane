@@ -21,12 +21,22 @@ $bundleDir = Join-Path $root "target\bundle"
 $filterDir = Join-Path $env:LOCALAPPDATA "ClearLane\filters"
 New-Item -ItemType Directory -Force -Path $filterDir | Out-Null
 
-Write-Host "Updating Shields filter lists..."
-try {
-    Invoke-WebRequest -UseBasicParsing "https://easylist.to/easylist/easylist.txt" -OutFile (Join-Path $filterDir "easylist.txt")
-    Invoke-WebRequest -UseBasicParsing "https://easylist.to/easylist/easyprivacy.txt" -OutFile (Join-Path $filterDir "easyprivacy.txt")
-} catch {
-    Write-Warning "Filter-list download failed. ClearLane will still use its small built-in fallback list."
+Write-Host "Updating Shields filter lists and scriptlet resources..."
+$shieldAssets = @(
+    @{ Name = "easylist.txt"; Url = "https://easylist.to/easylist/easylist.txt" },
+    @{ Name = "easyprivacy.txt"; Url = "https://easylist.to/easylist/easyprivacy.txt" },
+    @{ Name = "ublock-filters.txt"; Url = "https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/filters.txt" },
+    @{ Name = "ublock-privacy.txt"; Url = "https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/privacy.txt" },
+    @{ Name = "ublock-quick-fixes.txt"; Url = "https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/quick-fixes.txt" },
+    @{ Name = "resources.json"; Url = "https://raw.githubusercontent.com/brave/adblock-resources/master/dist/resources.json" }
+)
+
+foreach ($asset in $shieldAssets) {
+    try {
+        Invoke-WebRequest -UseBasicParsing $asset.Url -OutFile (Join-Path $filterDir $asset.Name)
+    } catch {
+        Write-Warning "Could not update Shields asset $($asset.Name). Any existing cached copy will be kept."
+    }
 }
 
 if (Test-Path $bundleDir) {
