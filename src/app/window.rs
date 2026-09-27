@@ -686,10 +686,7 @@ unsafe fn draw_button(item: &DRAWITEMSTRUCT) {
         }
 
         SetBkMode(item.hDC, TRANSPARENT);
-        SetTextColor(
-            item.hDC,
-            if disabled { COLOR_MUTED } else { COLOR_TEXT },
-        );
+        SetTextColor(item.hDC, if disabled { COLOR_MUTED } else { COLOR_TEXT });
         let text = control_text(item.hwndItem);
         let mut rect = item.rcItem;
         DrawTextW(
@@ -743,10 +740,7 @@ unsafe fn draw_tab(item: &DRAWITEMSTRUCT) {
         );
 
         SetBkMode(item.hDC, TRANSPARENT);
-        SetTextColor(
-            item.hDC,
-            if selected { COLOR_TEXT } else { COLOR_MUTED },
-        );
+        SetTextColor(item.hDC, if selected { COLOR_TEXT } else { COLOR_MUTED });
         let mut rect = item.rcItem;
         rect.left += 12;
         rect.right -= 10;
