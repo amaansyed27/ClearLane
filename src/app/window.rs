@@ -10,8 +10,9 @@ use windows_sys::Win32::{
         Dwm::{DWMWA_USE_IMMERSIVE_DARK_MODE, DwmSetWindowAttribute},
         Gdi::{
             CreateSolidBrush, DEFAULT_GUI_FONT, DT_CENTER, DT_END_ELLIPSIS, DT_LEFT, DT_NOPREFIX,
-            DT_SINGLELINE, DT_VCENTER, DrawTextW, FillRect, GetStockObject, InvalidateRect, NULL_PEN,
-            RoundRect, SelectObject, SetBkColor, SetBkMode, SetTextColor, TRANSPARENT, UpdateWindow,
+            DT_SINGLELINE, DT_VCENTER, DrawTextW, FillRect, GetStockObject, InvalidateRect,
+            NULL_PEN, RoundRect, SelectObject, SetBkColor, SetBkMode, SetTextColor, TRANSPARENT,
+            UpdateWindow,
         },
     },
     System::LibraryLoader::GetModuleHandleW,
