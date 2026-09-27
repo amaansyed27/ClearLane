@@ -1,6 +1,6 @@
 use eframe::egui::{
-    self, Align, Button, CentralPanel, FontId, Frame, Id, Key, Layout, Margin, RichText, SidePanel,
-    Stroke, TextEdit, TopBottomPanel, Vec2,
+    self, Align, Button, CentralPanel, FontId, Frame, Id, Key, Layout, Margin, Panel, RichText,
+    Stroke, TextEdit, Vec2,
 };
 
 use crate::core::{BrowserState, TabId, normalize_omnibox};
@@ -117,17 +117,21 @@ impl ClearLaneShell {
         }
     }
 
-    fn show_sidebar(&mut self, ctx: &egui::Context) {
+    fn show_sidebar(&mut self, root: &mut egui::Ui) {
+        let ctx = root.ctx().clone();
         let width = if self.sidebar_expanded { 230.0 } else { 62.0 };
-        SidePanel::left("clearlane-sidebar")
-            .exact_width(width)
+        Panel::left("clearlane-sidebar")
+            .default_size(width)
+            .min_size(width)
+            .max_size(width)
             .resizable(false)
+            .show_separator_line(false)
             .frame(
                 Frame::new()
                     .fill(SIDEBAR_BG)
                     .inner_margin(Margin::symmetric(8, 8)),
             )
-            .show(ctx, |ui| {
+            .show(root, |ui| {
                 ui.set_min_width(width - 16.0);
                 ui.horizontal(|ui| {
                     let mark = RichText::new("C")
@@ -202,17 +206,18 @@ impl ClearLaneShell {
                 } else {
                     "+"
                 };
+                let new_tab_width = ui.available_width();
                 if ui
                     .add(
                         Button::new(RichText::new(new_tab_label).size(13.5).color(MUTED))
-                            .min_size(Vec2::new(ui.available_width(), 34.0))
+                            .min_size(Vec2::new(new_tab_width, 34.0))
                             .corner_radius(7)
                             .frame_when_inactive(false),
                     )
                     .on_hover_text("New tab  Ctrl+T")
                     .clicked()
                 {
-                    self.new_tab(ctx);
+                    self.new_tab(&ctx);
                 }
 
                 ui.with_layout(Layout::bottom_up(Align::Min), |ui| {
@@ -227,15 +232,20 @@ impl ClearLaneShell {
             });
     }
 
-    fn show_toolbar(&mut self, ctx: &egui::Context) {
-        TopBottomPanel::top("clearlane-toolbar")
-            .exact_height(52.0)
+    fn show_toolbar(&mut self, root: &mut egui::Ui) {
+        let ctx = root.ctx().clone();
+        Panel::top("clearlane-toolbar")
+            .default_size(52.0)
+            .min_size(52.0)
+            .max_size(52.0)
+            .resizable(false)
+            .show_separator_line(false)
             .frame(
                 Frame::new()
                     .fill(SHELL_BG)
                     .inner_margin(Margin::symmetric(9, 8)),
             )
-            .show(ctx, |ui| {
+            .show(root, |ui| {
                 let active = self.browser.active().cloned();
                 let can_back = active.as_ref().is_some_and(|tab| tab.can_go_back());
                 let can_forward = active.as_ref().is_some_and(|tab| tab.can_go_forward());
@@ -319,10 +329,10 @@ impl ClearLaneShell {
             });
     }
 
-    fn show_page_surface(&self, ctx: &egui::Context) {
+    fn show_page_surface(&self, root: &mut egui::Ui) {
         CentralPanel::default()
             .frame(Frame::new().fill(PAGE_BG).inner_margin(0))
-            .show(ctx, |ui| {
+            .show(root, |ui| {
                 let rect = ui.max_rect();
                 ui.painter().line_segment(
                     [rect.left_top(), rect.right_top()],
@@ -389,11 +399,12 @@ impl ClearLaneShell {
 }
 
 impl eframe::App for ClearLaneShell {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        self.handle_shortcuts(ctx);
-        self.show_sidebar(ctx);
-        self.show_toolbar(ctx);
-        self.show_page_surface(ctx);
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        let ctx = ui.ctx().clone();
+        self.handle_shortcuts(&ctx);
+        self.show_sidebar(ui);
+        self.show_toolbar(ui);
+        self.show_page_surface(ui);
     }
 }
 
