@@ -26,7 +26,8 @@ function Get-ProcessTree([int]$RootPid) {
             }
         }
     }
-    @(Get-Process -Id $ids.ToArray() -ErrorAction SilentlyContinue)
+    $processIds = [int[]]@($ids)
+    @(Get-Process -Id $processIds -ErrorAction SilentlyContinue)
 }
 
 function Get-RoleMemory([System.Diagnostics.Process[]]$Processes, [int]$RootPid) {
@@ -120,7 +121,7 @@ function Measure-Run([string]$Label, [int]$Tabs) {
         label = $Label
         tabs = $Tabs
         startup_ms = $startupMs
-        process_count = $tree2.Count
+        process_count = @($tree2).Count
         working_set_mb = $memoryMb
         browser_ws_mb = $roles.browser_mb
         renderer_ws_mb = $roles.renderer_mb
