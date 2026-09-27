@@ -80,7 +80,11 @@ mod tests {
 
     #[test]
     fn does_not_open_file_or_custom_schemes() {
-        for input in ["file:///C:/secret.txt", "mailto:test@example.com", "ftp://example.com/file"] {
+        for input in [
+            "file:///C:/secret.txt",
+            "mailto:test@example.com",
+            "ftp://example.com/file",
+        ] {
             let result = normalize_omnibox(input).expect("query should normalize");
             assert!(result.starts_with(SEARCH_ENDPOINT));
         }
