@@ -200,10 +200,8 @@ mod tests {
     use base64::{Engine as _, engine::general_purpose::STANDARD};
 
     fn test_dir(name: &str) -> std::path::PathBuf {
-        let path = std::env::temp_dir().join(format!(
-            "clearlane-shields-{name}-{}",
-            std::process::id()
-        ));
+        let path =
+            std::env::temp_dir().join(format!("clearlane-shields-{name}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&path);
         fs::create_dir_all(&path).expect("create Shields test directory");
         path
