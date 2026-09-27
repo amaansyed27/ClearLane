@@ -363,19 +363,18 @@ fn create_controls(hwnd: HWND, instance: *mut c_void) -> Result<Controls, String
         }
 
         // Keep text away from the rounded omnibox edges while the EDIT itself stays borderless.
-        SendMessageW(controls.omnibox, EM_SETMARGINS, EC_LEFTMARGIN | EC_RIGHTMARGIN, 0);
+        SendMessageW(
+            controls.omnibox,
+            EM_SETMARGINS,
+            EC_LEFTMARGIN | EC_RIGHTMARGIN,
+            0,
+        );
         SetWindowSubclass(controls.omnibox, Some(omnibox_proc), 1, hwnd as usize);
         Ok(controls)
     }
 }
 
-fn create_button(
-    hwnd: HWND,
-    instance: *mut c_void,
-    class: &[u16],
-    label: &str,
-    id: usize,
-) -> HWND {
+fn create_button(hwnd: HWND, instance: *mut c_void, class: &[u16], label: &str, id: usize) -> HWND {
     let label = wide(label);
     // SAFETY: inputs are valid during the call and the parent owns the created child window.
     unsafe {
@@ -509,7 +508,12 @@ fn layout(runtime: &mut Runtime) {
             (rect.bottom - toolbar_height - s(62)).max(s(40)),
             1,
         );
-        SendMessageW(runtime.controls.tab_list, LB_SETITEMHEIGHT, 0, s(38) as isize);
+        SendMessageW(
+            runtime.controls.tab_list,
+            LB_SETITEMHEIGHT,
+            0,
+            s(38) as isize,
+        );
 
         let bounds = browser_bounds(runtime.hwnd, runtime.sidebar_open);
         runtime.engine.layout(bounds, runtime.state.active_id());
@@ -526,7 +530,11 @@ pub(crate) fn refresh(runtime: &mut Runtime) {
 
     // SAFETY: all controls are valid child HWNDs while the main window is alive.
     unsafe {
-        let sidebar_show = if runtime.sidebar_open { SW_SHOW } else { SW_HIDE };
+        let sidebar_show = if runtime.sidebar_open {
+            SW_SHOW
+        } else {
+            SW_HIDE
+        };
         for control in [
             runtime.controls.sidebar,
             runtime.controls.new_tab,
@@ -678,7 +686,10 @@ unsafe fn draw_button(item: &DRAWITEMSTRUCT) {
         }
 
         SetBkMode(item.hDC, TRANSPARENT);
-        SetTextColor(item.hDC, if disabled { COLOR_MUTED } else { COLOR_TEXT });
+        SetTextColor(
+            item.hDC,
+            if disabled { COLOR_MUTED } else { COLOR_TEXT },
+        );
         let text = control_text(item.hwndItem);
         let mut rect = item.rcItem;
         DrawTextW(
@@ -732,7 +743,10 @@ unsafe fn draw_tab(item: &DRAWITEMSTRUCT) {
         );
 
         SetBkMode(item.hDC, TRANSPARENT);
-        SetTextColor(item.hDC, if selected { COLOR_TEXT } else { COLOR_MUTED });
+        SetTextColor(
+            item.hDC,
+            if selected { COLOR_TEXT } else { COLOR_MUTED },
+        );
         let mut rect = item.rcItem;
         rect.left += 12;
         rect.right -= 10;
