@@ -8,6 +8,7 @@ use adblock::{
     Engine,
     lists::{FilterSet, ParseOptions},
     request::Request,
+    resources::Resource,
 };
 use url::Url;
 
@@ -19,6 +20,14 @@ const FALLBACK_RULES: &str = r#"
 ||connect.facebook.net^$third-party
 ||ads-twitter.com^
 "#;
+
+const FILTER_FILES: &[&str] = &[
+    "easylist.txt",
+    "easyprivacy.txt",
+    "ublock-filters.txt",
+    "ublock-privacy.txt",
+    "ublock-quick-fixes.txt",
+];
 
 pub struct Shields {
     engine: Engine,
@@ -51,11 +60,18 @@ impl Shields {
         self.engine = engine;
     }
 
-    pub fn should_block(&mut self, tab_id: u64, page_url: &str, request_url: &str) -> bool {
+    pub fn should_block(
+        &mut self,
+        tab_id: u64,
+        page_url: &str,
+        request_url: &str,
+        resource_type: &str,
+        method: &str,
+    ) -> bool {
         if !self.enabled_for_url(page_url) {
             return false;
         }
-        let Ok(request) = Request::new(request_url, page_url, "other", "") else {
+        let Ok(request) = Request::new(request_url, page_url, resource_type, method) else {
             return false;
         };
         let blocked = self.engine.check_network_request(&request).should_block();
@@ -63,6 +79,48 @@ impl Shields {
             *self.blocked_by_tab.entry(tab_id).or_default() += 1;
         }
         blocked
+    }
+
+    /// Returns page-start JavaScript containing hostname-specific cosmetic CSS and scriptlets.
+    /// Generic class/id rules are intentionally left out for now; those need a MutationObserver
+    /// bridge so only selectors that can actually match the live page are requested from adblock.
+    pub fn cosmetic_script(&self, page_url: &str) -> Option<String> {
+        if !self.enabled_for_url(page_url) {
+            return None;
+        }
+
+        let resources = self.engine.url_cosmetic_resources(page_url);
+        if resources.hide_selectors.is_empty() && resources.injected_script.trim().is_empty() {
+            return None;
+        }
+
+        let mut selectors: Vec<_> = resources.hide_selectors.into_iter().collect();
+        selectors.sort_unstable();
+        let css = if selectors.is_empty() {
+            String::new()
+        } else {
+            format!("{}{{display:none!important}}", selectors.join(","))
+        };
+        let css_json = serde_json::to_string(&css).ok()?;
+        let scriptlets = resources.injected_script;
+
+        Some(format!(
+            r#"(()=>{{
+const css={css_json};
+if(css){{
+  const install=()=>{{
+    if(document.querySelector('style[data-clearlane-shields]')) return;
+    const style=document.createElement('style');
+    style.setAttribute('data-clearlane-shields','');
+    style.textContent=css;
+    (document.documentElement||document.head).appendChild(style);
+  }};
+  if(document.documentElement) install();
+  else document.addEventListener('DOMContentLoaded',install,{{once:true}});
+}}
+{scriptlets}
+}})();"#
+        ))
     }
 
     pub fn blocked_count(&self, tab_id: u64) -> u64 {
@@ -98,13 +156,22 @@ fn build_engine(filter_dir: Option<&Path>) -> Engine {
     let mut set = FilterSet::new(false);
     set.add_filter_list(FALLBACK_RULES.to_string(), ParseOptions::default());
     if let Some(filter_dir) = filter_dir {
-        for name in ["easylist.txt", "easyprivacy.txt"] {
+        for name in FILTER_FILES {
             if let Ok(text) = fs::read_to_string(filter_dir.join(name)) {
                 set.add_filter_list(text, ParseOptions::default());
             }
         }
     }
-    Engine::new_with_filter_set(set)
+
+    let mut engine = Engine::new_with_filter_set(set);
+    if let Some(filter_dir) = filter_dir {
+        if let Ok(text) = fs::read_to_string(filter_dir.join("resources.json")) {
+            if let Ok(resources) = serde_json::from_str::<Vec<Resource>>(&text) {
+                engine.use_resources(resources);
+            }
+        }
+    }
+    engine
 }
 
 fn site_host(url: &str) -> Option<String> {
@@ -125,7 +192,9 @@ mod tests {
         assert!(shields.should_block(
             1,
             "https://example.com/",
-            "https://stats.doubleclick.net/pixel"
+            "https://stats.doubleclick.net/pixel",
+            "image",
+            "get"
         ));
         assert_eq!(shields.blocked_count(1), 1);
     }
@@ -138,7 +207,15 @@ mod tests {
         assert!(!shields.should_block(
             1,
             "https://example.com/",
-            "https://stats.doubleclick.net/pixel"
+            "https://stats.doubleclick.net/pixel",
+            "image",
+            "get"
         ));
+    }
+
+    #[test]
+    fn fallback_has_no_cosmetic_script_without_cosmetic_rules() {
+        let shields = Shields::fallback(HashSet::new());
+        assert!(shields.cosmetic_script("https://example.com/").is_none());
     }
 }
