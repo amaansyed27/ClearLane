@@ -276,12 +276,7 @@ pub(crate) fn launch(state_dir: PathBuf) -> Result<Arc<Mutex<Runtime>>, String> 
                 // navigation. Posting a native command keeps all CEF browser interaction on the
                 // UI thread rather than touching BrowserHost from the loader thread.
                 unsafe {
-                    PostMessageW(
-                        locked.hwnd,
-                        WM_COMMAND,
-                        window::RELOAD_COMMAND_ID,
-                        0,
-                    );
+                    PostMessageW(locked.hwnd, WM_COMMAND, window::RELOAD_COMMAND_ID, 0);
                 }
             }
         });
