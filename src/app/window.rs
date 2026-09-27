@@ -1,12 +1,19 @@
 use std::{
     cell::Cell,
     ffi::c_void,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, OnceLock},
 };
 
 use windows_sys::Win32::{
     Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM},
-    Graphics::Gdi::{COLOR_WINDOW, DEFAULT_GUI_FONT, GetStockObject, UpdateWindow},
+    Graphics::{
+        Dwm::{DWMWA_USE_IMMERSIVE_DARK_MODE, DwmSetWindowAttribute},
+        Gdi::{
+            CreateSolidBrush, DEFAULT_GUI_FONT, DrawTextW, FillRect, GetStockObject, NULL_PEN,
+            RoundRect, SelectObject, SetBkColor, SetBkMode, SetTextColor, TRANSPARENT,
+            UpdateWindow,
+        },
+    },
     System::LibraryLoader::GetModuleHandleW,
     UI::{
         HiDpi::GetDpiForWindow,
@@ -33,6 +40,45 @@ const ID_SHIELDS: usize = 106;
 const ID_TAB_LIST: usize = 107;
 const ID_NEW_TAB: usize = 108;
 const ID_CLOSE_TAB: usize = 109;
+const ID_OMNIBOX_SURFACE: usize = 110;
+
+const TOOLBAR_DIP: i32 = 54;
+const SIDEBAR_DIP: i32 = 232;
+
+const COLOR_SHELL: u32 = rgb(18, 19, 22);
+const COLOR_SIDEBAR: u32 = rgb(23, 24, 28);
+const COLOR_SURFACE: u32 = rgb(37, 39, 45);
+const COLOR_SURFACE_PRESSED: u32 = rgb(48, 50, 58);
+const COLOR_ACTIVE_TAB: u32 = rgb(45, 47, 54);
+const COLOR_TEXT: u32 = rgb(242, 243, 245);
+const COLOR_MUTED: u32 = rgb(151, 155, 166);
+
+const fn rgb(r: u8, g: u8, b: u8) -> u32 {
+    (r as u32) | ((g as u32) << 8) | ((b as u32) << 16)
+}
+
+static SHELL_BRUSH: OnceLock<usize> = OnceLock::new();
+static SIDEBAR_BRUSH: OnceLock<usize> = OnceLock::new();
+static SURFACE_BRUSH: OnceLock<usize> = OnceLock::new();
+
+fn cached_brush(slot: &OnceLock<usize>, color: u32) -> *mut c_void {
+    *slot.get_or_init(|| {
+        // Brushes live for the lifetime of the process and are reused by native controls.
+        unsafe { CreateSolidBrush(color) as usize }
+    }) as *mut c_void
+}
+
+fn shell_brush() -> *mut c_void {
+    cached_brush(&SHELL_BRUSH, COLOR_SHELL)
+}
+
+fn sidebar_brush() -> *mut c_void {
+    cached_brush(&SIDEBAR_BRUSH, COLOR_SIDEBAR)
+}
+
+fn surface_brush() -> *mut c_void {
+    cached_brush(&SURFACE_BRUSH, COLOR_SURFACE)
+}
 
 thread_local! {
     /// Native controls synchronously notify their parent while some properties are changed.
@@ -67,6 +113,7 @@ pub(crate) struct Controls {
     pub forward: HWND,
     pub reload: HWND,
     pub stop: HWND,
+    pub omnibox_surface: HWND,
     pub omnibox: HWND,
     pub shields: HWND,
     pub sidebar: HWND,
@@ -83,6 +130,7 @@ impl Default for Controls {
             forward: std::ptr::null_mut(),
             reload: std::ptr::null_mut(),
             stop: std::ptr::null_mut(),
+            omnibox_surface: std::ptr::null_mut(),
             omnibox: std::ptr::null_mut(),
             shields: std::ptr::null_mut(),
             sidebar: std::ptr::null_mut(),
@@ -97,8 +145,6 @@ pub(crate) fn create(runtime: Arc<Mutex<Runtime>>) -> Result<(), String> {
     crate::win::startup_log("window create: entered");
     // SAFETY: all handles created here remain owned by the UI thread until WM_NCDESTROY.
     unsafe {
-        // CEF establishes the process DPI mode during its own Windows startup. Do not
-        // mutate process-wide DPI awareness here after CEF has already initialized.
         crate::win::startup_log("window create: obtaining module handle");
         let instance = GetModuleHandleW(std::ptr::null());
         crate::win::startup_log("window create: module handle obtained");
@@ -112,7 +158,7 @@ pub(crate) fn create(runtime: Arc<Mutex<Runtime>>) -> Result<(), String> {
             hInstance: instance,
             hIcon: std::ptr::null_mut(),
             hCursor: LoadCursorW(std::ptr::null_mut(), IDC_ARROW),
-            hbrBackground: (COLOR_WINDOW + 1) as usize as _,
+            hbrBackground: shell_brush(),
             lpszMenuName: std::ptr::null(),
             lpszClassName: class.as_ptr(),
         };
@@ -139,11 +185,11 @@ pub(crate) fn create(runtime: Arc<Mutex<Runtime>>) -> Result<(), String> {
         );
         crate::win::startup_log("window create: CreateWindowExW returned");
         if hwnd.is_null() {
-            // Window creation did not establish a usable top-level HWND. In the normal
-            // failure path Windows has not retained lpCreateParams, so release our Arc.
             drop(Box::from_raw(raw_runtime));
             return Err("CreateWindowExW failed".to_string());
         }
+
+        apply_native_frame(hwnd);
 
         crate::win::startup_log("window create: creating child controls");
         let controls = create_controls(hwnd, instance)?;
@@ -171,96 +217,90 @@ pub(crate) fn create(runtime: Arc<Mutex<Runtime>>) -> Result<(), String> {
     }
 }
 
+unsafe fn apply_native_frame(hwnd: HWND) {
+    let dark: i32 = 1;
+    // Best-effort on supported Windows 10/11 builds. Failure simply leaves the OS title bar style.
+    unsafe {
+        let _ = DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_USE_IMMERSIVE_DARK_MODE,
+            (&dark as *const i32).cast::<c_void>(),
+            std::mem::size_of_val(&dark) as u32,
+        );
+    }
+}
+
 fn create_controls(hwnd: HWND, instance: *mut c_void) -> Result<Controls, String> {
     // SAFETY: child controls use `hwnd` as their lifetime-owning parent and valid static classes.
     unsafe {
         let button = wide("BUTTON");
         let edit = wide("EDIT");
         let listbox = wide("LISTBOX");
+        let static_class = wide("STATIC");
 
-        let sidebar_toggle = create_control(
+        let sidebar_toggle = create_button(hwnd, instance, &button, "☰", ID_SIDEBAR_TOGGLE);
+        let back = create_button(hwnd, instance, &button, "←", ID_BACK);
+        let forward = create_button(hwnd, instance, &button, "→", ID_FORWARD);
+        let reload = create_button(hwnd, instance, &button, "↻", ID_RELOAD);
+        let stop = create_button(hwnd, instance, &button, "×", ID_STOP);
+
+        let omnibox_surface = CreateWindowExW(
+            0,
+            static_class.as_ptr(),
+            std::ptr::null(),
+            WS_CHILD | WS_VISIBLE | SS_OWNERDRAW as u32,
+            0,
+            0,
+            100,
+            36,
             hwnd,
+            ID_OMNIBOX_SURFACE as _,
             instance,
-            &button,
-            "☰",
-            BS_PUSHBUTTON as u32,
-            ID_SIDEBAR_TOGGLE,
+            std::ptr::null(),
         );
-        let back = create_control(hwnd, instance, &button, "‹", BS_PUSHBUTTON as u32, ID_BACK);
-        let forward = create_control(
-            hwnd,
-            instance,
-            &button,
-            "›",
-            BS_PUSHBUTTON as u32,
-            ID_FORWARD,
-        );
-        let reload = create_control(
-            hwnd,
-            instance,
-            &button,
-            "↻",
-            BS_PUSHBUTTON as u32,
-            ID_RELOAD,
-        );
-        let stop = create_control(hwnd, instance, &button, "×", BS_PUSHBUTTON as u32, ID_STOP);
         let omnibox = CreateWindowExW(
-            WS_EX_CLIENTEDGE,
+            0,
             edit.as_ptr(),
             std::ptr::null(),
             WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL as u32,
             0,
             0,
             100,
-            28,
+            24,
             hwnd,
             ID_OMNIBOX as _,
             instance,
             std::ptr::null(),
         );
-        let shields = create_control(
-            hwnd,
-            instance,
-            &button,
-            "Shields",
-            BS_PUSHBUTTON as u32,
-            ID_SHIELDS,
-        );
+        let shields = create_button(hwnd, instance, &button, "◇ 0", ID_SHIELDS);
+
         let sidebar = CreateWindowExW(
             0,
-            wide("STATIC").as_ptr(),
+            static_class.as_ptr(),
             std::ptr::null(),
             WS_CHILD | WS_VISIBLE,
             0,
             0,
-            200,
+            SIDEBAR_DIP,
             400,
             hwnd,
             std::ptr::null_mut(),
             instance,
             std::ptr::null(),
         );
-        let new_tab = create_control(
-            hwnd,
-            instance,
-            &button,
-            "+",
-            BS_PUSHBUTTON as u32,
-            ID_NEW_TAB,
-        );
-        let close_tab = create_control(
-            hwnd,
-            instance,
-            &button,
-            "−",
-            BS_PUSHBUTTON as u32,
-            ID_CLOSE_TAB,
-        );
+        let new_tab = create_button(hwnd, instance, &button, "+  New tab", ID_NEW_TAB);
+        let close_tab = create_button(hwnd, instance, &button, "×", ID_CLOSE_TAB);
         let tab_list = CreateWindowExW(
-            WS_EX_CLIENTEDGE,
+            0,
             listbox.as_ptr(),
             std::ptr::null(),
-            WS_CHILD | WS_VISIBLE | WS_VSCROLL | LBS_NOTIFY as u32,
+            WS_CHILD
+                | WS_VISIBLE
+                | WS_VSCROLL
+                | LBS_NOTIFY as u32
+                | LBS_OWNERDRAWFIXED as u32
+                | LBS_HASSTRINGS as u32
+                | LBS_NOINTEGRALHEIGHT as u32,
             0,
             0,
             180,
@@ -277,6 +317,7 @@ fn create_controls(hwnd: HWND, instance: *mut c_void) -> Result<Controls, String
             forward,
             reload,
             stop,
+            omnibox_surface,
             omnibox,
             shields,
             sidebar,
@@ -291,6 +332,7 @@ fn create_controls(hwnd: HWND, instance: *mut c_void) -> Result<Controls, String
             controls.forward,
             controls.reload,
             controls.stop,
+            controls.omnibox_surface,
             controls.omnibox,
             controls.shields,
             controls.sidebar,
@@ -313,24 +355,25 @@ fn create_controls(hwnd: HWND, instance: *mut c_void) -> Result<Controls, String
             controls.stop,
             controls.omnibox,
             controls.shields,
-            controls.sidebar,
             controls.tab_list,
             controls.new_tab,
             controls.close_tab,
         ] {
             SendMessageW(control, WM_SETFONT, font as usize, 1);
         }
+
+        // Keep text away from the rounded omnibox edges while the EDIT itself stays borderless.
+        SendMessageW(controls.omnibox, EM_SETMARGINS, EC_LEFTMARGIN | EC_RIGHTMARGIN, 0);
         SetWindowSubclass(controls.omnibox, Some(omnibox_proc), 1, hwnd as usize);
         Ok(controls)
     }
 }
 
-fn create_control(
+fn create_button(
     hwnd: HWND,
     instance: *mut c_void,
     class: &[u16],
     label: &str,
-    extra_style: u32,
     id: usize,
 ) -> HWND {
     let label = wide(label);
@@ -340,7 +383,7 @@ fn create_control(
             0,
             class.as_ptr(),
             label.as_ptr(),
-            WS_CHILD | WS_VISIBLE | WS_TABSTOP | extra_style,
+            WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW as u32,
             0,
             0,
             30,
@@ -362,8 +405,12 @@ pub(crate) fn browser_bounds(hwnd: HWND, sidebar_open: bool) -> EngineBounds {
         let mut rect = RECT::default();
         GetClientRect(hwnd, &mut rect);
         let dpi = GetDpiForWindow(hwnd).max(96) as i32;
-        let toolbar = 48 * dpi / 96;
-        let sidebar = if sidebar_open { 224 * dpi / 96 } else { 0 };
+        let toolbar = TOOLBAR_DIP * dpi / 96;
+        let sidebar = if sidebar_open {
+            SIDEBAR_DIP * dpi / 96
+        } else {
+            0
+        };
         EngineBounds {
             x: sidebar,
             y: toolbar,
@@ -383,13 +430,14 @@ fn layout(runtime: &mut Runtime) {
         GetClientRect(runtime.hwnd, &mut rect);
         let dpi = GetDpiForWindow(runtime.hwnd).max(96) as i32;
         let s = |value: i32| value * dpi / 96;
-        let toolbar_height = s(48);
-        let button = s(36);
+        let toolbar_height = s(TOOLBAR_DIP);
+        let sidebar_width = s(SIDEBAR_DIP);
+        let button = s(34);
         let gap = s(6);
-        let sidebar_width = if runtime.sidebar_open { s(224) } else { 0 };
-        let shields_width = s(116);
-        let mut x = gap;
+        let edge = s(10);
+        let shields_width = s(78);
 
+        let mut x = edge;
         for control in [
             runtime.controls.sidebar_toggle,
             runtime.controls.back,
@@ -397,75 +445,75 @@ fn layout(runtime: &mut Runtime) {
             runtime.controls.reload,
             runtime.controls.stop,
         ] {
-            MoveWindow(control, x, s(6), button, s(34), 1);
+            MoveWindow(control, x, s(10), button, button, 1);
             x += button + gap;
         }
 
-        let omnibox_width = (rect.right - x - shields_width - gap * 2).max(s(140));
-        MoveWindow(runtime.controls.omnibox, x, s(8), omnibox_width, s(30), 1);
+        x += s(6);
+        let omnibox_right = rect.right - edge - shields_width - gap;
+        let omnibox_width = (omnibox_right - x).max(s(180));
+        MoveWindow(
+            runtime.controls.omnibox_surface,
+            x,
+            s(8),
+            omnibox_width,
+            s(38),
+            1,
+        );
+        MoveWindow(
+            runtime.controls.omnibox,
+            x + s(13),
+            s(15),
+            (omnibox_width - s(26)).max(s(120)),
+            s(24),
+            1,
+        );
         MoveWindow(
             runtime.controls.shields,
-            x + omnibox_width + gap,
-            s(6),
+            omnibox_right + gap,
+            s(10),
             shields_width,
-            s(34),
+            button,
             1,
         );
 
-        if runtime.sidebar_open {
-            for control in [
-                runtime.controls.sidebar,
-                runtime.controls.new_tab,
-                runtime.controls.close_tab,
-                runtime.controls.tab_list,
-            ] {
-                ShowWindow(control, SW_SHOW);
-            }
-            MoveWindow(
-                runtime.controls.sidebar,
-                0,
-                toolbar_height,
-                sidebar_width,
-                rect.bottom - toolbar_height,
-                1,
-            );
-            MoveWindow(
-                runtime.controls.new_tab,
-                gap,
-                toolbar_height + gap,
-                s(36),
-                s(30),
-                1,
-            );
-            MoveWindow(
-                runtime.controls.close_tab,
-                gap + s(42),
-                toolbar_height + gap,
-                s(36),
-                s(30),
-                1,
-            );
-            MoveWindow(
-                runtime.controls.tab_list,
-                gap,
-                toolbar_height + s(44),
-                sidebar_width - gap * 2,
-                rect.bottom - toolbar_height - s(50),
-                1,
-            );
-        } else {
-            for control in [
-                runtime.controls.sidebar,
-                runtime.controls.new_tab,
-                runtime.controls.close_tab,
-                runtime.controls.tab_list,
-            ] {
-                ShowWindow(control, SW_HIDE);
-            }
-        }
+        MoveWindow(
+            runtime.controls.sidebar,
+            0,
+            toolbar_height,
+            sidebar_width,
+            (rect.bottom - toolbar_height).max(1),
+            1,
+        );
+        MoveWindow(
+            runtime.controls.new_tab,
+            edge,
+            toolbar_height + s(10),
+            (sidebar_width - s(58)).max(s(100)),
+            s(34),
+            1,
+        );
+        MoveWindow(
+            runtime.controls.close_tab,
+            sidebar_width - edge - s(34),
+            toolbar_height + s(10),
+            s(34),
+            s(34),
+            1,
+        );
+        MoveWindow(
+            runtime.controls.tab_list,
+            s(8),
+            toolbar_height + s(54),
+            (sidebar_width - s(16)).max(s(100)),
+            (rect.bottom - toolbar_height - s(62)).max(s(40)),
+            1,
+        );
+        SendMessageW(runtime.controls.tab_list, LB_SETITEMHEIGHT, 0, s(38) as isize);
 
         let bounds = browser_bounds(runtime.hwnd, runtime.sidebar_open);
         runtime.engine.layout(bounds, runtime.state.active_id());
+        InvalidateRect(runtime.hwnd, std::ptr::null(), 0);
     }
 }
 
@@ -474,13 +522,20 @@ pub(crate) fn refresh(runtime: &mut Runtime) {
         return;
     }
 
-    // Win32 edit/list controls can synchronously send WM_COMMAND while they are updated.
-    // Mark this scope so the parent procedure cannot mistake those notifications for user input
-    // and recursively acquire the already-held Runtime mutex.
     let _ui_update = UiUpdateGuard::enter();
 
     // SAFETY: all controls are valid child HWNDs while the main window is alive.
     unsafe {
+        let sidebar_show = if runtime.sidebar_open { SW_SHOW } else { SW_HIDE };
+        for control in [
+            runtime.controls.sidebar,
+            runtime.controls.new_tab,
+            runtime.controls.close_tab,
+            runtime.controls.tab_list,
+        ] {
+            ShowWindow(control, sidebar_show);
+        }
+
         SendMessageW(runtime.controls.tab_list, LB_RESETCONTENT, 0, 0);
         for tab in runtime.state.tabs() {
             let label = if tab.title.trim().is_empty() {
@@ -504,6 +559,10 @@ pub(crate) fn refresh(runtime: &mut Runtime) {
 
         if let Some(tab) = runtime.state.active() {
             set_text(runtime.controls.omnibox, &tab.url);
+            EnableWindow(runtime.controls.back, tab.can_go_back as i32);
+            EnableWindow(runtime.controls.forward, tab.can_go_forward as i32);
+            EnableWindow(runtime.controls.stop, tab.loading as i32);
+
             let (enabled, count) = runtime
                 .shields()
                 .lock()
@@ -516,7 +575,11 @@ pub(crate) fn refresh(runtime: &mut Runtime) {
                 .unwrap_or((true, 0));
             set_text(
                 runtime.controls.shields,
-                &format!("Shields {} {count}", if enabled { "ON" } else { "OFF" }),
+                if enabled {
+                    &format!("◇ {count}")
+                } else {
+                    "◇ Off"
+                },
             );
             let title = if tab.title.trim().is_empty() {
                 "ClearLane".to_string()
@@ -526,7 +589,25 @@ pub(crate) fn refresh(runtime: &mut Runtime) {
             SetWindowTextW(runtime.hwnd, wide(&title).as_ptr());
         } else {
             set_text(runtime.controls.omnibox, "");
-            set_text(runtime.controls.shields, "Shields ON 0");
+            set_text(runtime.controls.shields, "◇ 0");
+            EnableWindow(runtime.controls.back, 0);
+            EnableWindow(runtime.controls.forward, 0);
+            EnableWindow(runtime.controls.stop, 0);
+        }
+
+        for control in [
+            runtime.controls.sidebar_toggle,
+            runtime.controls.back,
+            runtime.controls.forward,
+            runtime.controls.reload,
+            runtime.controls.stop,
+            runtime.controls.omnibox_surface,
+            runtime.controls.shields,
+            runtime.controls.new_tab,
+            runtime.controls.close_tab,
+            runtime.controls.tab_list,
+        ] {
+            InvalidateRect(control, std::ptr::null(), 0);
         }
     }
 }
@@ -548,6 +629,120 @@ fn set_text(hwnd: HWND, text: &str) {
     // SAFETY: the UTF-16 buffer is NUL-terminated and lives through the synchronous call.
     unsafe {
         SetWindowTextW(hwnd, wide(text).as_ptr());
+    }
+}
+
+fn control_text(hwnd: HWND) -> Vec<u16> {
+    // SAFETY: hwnd is a live native child control while the main window exists.
+    unsafe {
+        let len = GetWindowTextLengthW(hwnd);
+        let mut text = vec![0u16; len as usize + 1];
+        GetWindowTextW(hwnd, text.as_mut_ptr(), text.len() as i32);
+        text
+    }
+}
+
+unsafe fn draw_rounded_rect(hdc: *mut c_void, rect: RECT, brush: *mut c_void, radius: i32) {
+    // SAFETY: the device context belongs to the current WM_DRAWITEM operation.
+    unsafe {
+        let old_brush = SelectObject(hdc, brush);
+        let old_pen = SelectObject(hdc, GetStockObject(NULL_PEN));
+        RoundRect(
+            hdc,
+            rect.left,
+            rect.top,
+            rect.right,
+            rect.bottom,
+            radius,
+            radius,
+        );
+        SelectObject(hdc, old_pen);
+        SelectObject(hdc, old_brush);
+    }
+}
+
+unsafe fn draw_button(item: &DRAWITEMSTRUCT) {
+    // SAFETY: DRAWITEMSTRUCT and its HDC/HWND are provided by Win32 for this synchronous draw.
+    unsafe {
+        FillRect(item.hDC, &item.rcItem, shell_brush());
+        let pressed = item.itemState & ODS_SELECTED != 0;
+        let disabled = item.itemState & ODS_DISABLED != 0;
+        let brush = if pressed {
+            CreateSolidBrush(COLOR_SURFACE_PRESSED)
+        } else {
+            surface_brush()
+        };
+        draw_rounded_rect(item.hDC, item.rcItem, brush, 12);
+        if pressed {
+            let _ = windows_sys::Win32::Graphics::Gdi::DeleteObject(brush);
+        }
+
+        SetBkMode(item.hDC, TRANSPARENT);
+        SetTextColor(item.hDC, if disabled { COLOR_MUTED } else { COLOR_TEXT });
+        let text = control_text(item.hwndItem);
+        let mut rect = item.rcItem;
+        DrawTextW(
+            item.hDC,
+            text.as_ptr(),
+            text.len().saturating_sub(1) as i32,
+            &mut rect,
+            DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS,
+        );
+    }
+}
+
+unsafe fn draw_omnibox_surface(item: &DRAWITEMSTRUCT) {
+    // SAFETY: DRAWITEMSTRUCT and its HDC are valid for the synchronous owner-draw callback.
+    unsafe {
+        FillRect(item.hDC, &item.rcItem, shell_brush());
+        draw_rounded_rect(item.hDC, item.rcItem, surface_brush(), 18);
+    }
+}
+
+unsafe fn draw_tab(item: &DRAWITEMSTRUCT) {
+    // SAFETY: DRAWITEMSTRUCT and its HDC/HWND are provided by Win32 for this listbox item.
+    unsafe {
+        FillRect(item.hDC, &item.rcItem, sidebar_brush());
+        if item.itemID == u32::MAX {
+            return;
+        }
+
+        let selected = item.itemState & ODS_SELECTED != 0;
+        if selected {
+            let brush = CreateSolidBrush(COLOR_ACTIVE_TAB);
+            let mut selected_rect = item.rcItem;
+            selected_rect.left += 2;
+            selected_rect.right -= 2;
+            selected_rect.top += 2;
+            selected_rect.bottom -= 2;
+            draw_rounded_rect(item.hDC, selected_rect, brush, 12);
+            let _ = windows_sys::Win32::Graphics::Gdi::DeleteObject(brush);
+        }
+
+        let len = SendMessageW(item.hwndItem, LB_GETTEXTLEN, item.itemID as usize, 0);
+        if len < 0 {
+            return;
+        }
+        let mut text = vec![0u16; len as usize + 1];
+        SendMessageW(
+            item.hwndItem,
+            LB_GETTEXT,
+            item.itemID as usize,
+            text.as_mut_ptr() as isize,
+        );
+
+        SetBkMode(item.hDC, TRANSPARENT);
+        SetTextColor(item.hDC, if selected { COLOR_TEXT } else { COLOR_MUTED });
+        let mut rect = item.rcItem;
+        rect.left += 12;
+        rect.right -= 10;
+        DrawTextW(
+            item.hDC,
+            text.as_ptr(),
+            text.len().saturating_sub(1) as i32,
+            &mut rect,
+            DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS,
+        );
     }
 }
 
@@ -573,9 +768,6 @@ fn classify_command(id: usize, notification: usize, lparam: LPARAM) -> Option<Co
         ID_FORWARD if clicked => Some(CommandAction::Forward),
         ID_RELOAD if clicked => Some(CommandAction::Reload),
         ID_STOP if clicked => Some(CommandAction::Stop),
-        // The omnibox subclass posts this synthetic command with lParam=0 when Enter is pressed.
-        // Native EDIT notifications such as EN_UPDATE/EN_CHANGE include the control HWND and must
-        // never be interpreted as navigation requests.
         ID_OMNIBOX if notification == 0 && lparam == 0 => Some(CommandAction::SubmitOmnibox),
         ID_SHIELDS if clicked => Some(CommandAction::ToggleShields),
         ID_NEW_TAB if clicked => Some(CommandAction::NewTab),
@@ -635,7 +827,6 @@ unsafe extern "system" fn wnd_proc(
 
         match msg {
             WM_COMMAND => {
-                // Ignore synchronous notifications generated by our own control refreshes.
                 if ui_update_in_progress() {
                     return 0;
                 }
@@ -677,6 +868,34 @@ unsafe extern "system" fn wnd_proc(
                     }
                 }
                 0
+            }
+            WM_DRAWITEM => {
+                if lparam == 0 {
+                    return 0;
+                }
+                let item = &*(lparam as *const DRAWITEMSTRUCT);
+                if wparam == ID_OMNIBOX_SURFACE {
+                    draw_omnibox_surface(item);
+                } else if item.CtlType == ODT_BUTTON {
+                    draw_button(item);
+                } else if item.CtlType == ODT_LISTBOX {
+                    draw_tab(item);
+                }
+                1
+            }
+            WM_CTLCOLOREDIT => {
+                SetTextColor(wparam as _, COLOR_TEXT);
+                SetBkColor(wparam as _, COLOR_SURFACE);
+                surface_brush() as LRESULT
+            }
+            WM_CTLCOLORLISTBOX => {
+                SetTextColor(wparam as _, COLOR_MUTED);
+                SetBkColor(wparam as _, COLOR_SIDEBAR);
+                sidebar_brush() as LRESULT
+            }
+            WM_CTLCOLORSTATIC => {
+                SetBkColor(wparam as _, COLOR_SIDEBAR);
+                sidebar_brush() as LRESULT
             }
             WM_SIZE | WM_DPICHANGED => {
                 if let Some(runtime) = runtime {
